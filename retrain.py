@@ -482,12 +482,9 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
     images_by_category = list(image_lists['images'][category])
 
 
-    # TODO should be a matrix of [batch_size, num_classes]
     ground_truths = []
-    #ground_truths = tf.placeholder(tf.float32, [None, class_count], name='GroundTruthInput')
     filenames = []
     if how_many >= 0:
-        # ground_truths = np.zeros((how_many,class_count), dtype=np.float32)
 
         # Retrieve a random sample of bottlenecks.
         for unused_i in range(how_many):
@@ -510,7 +507,6 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
             filenames.append(image_path)
     else:
         # Retrieve all bottlenecks.
-        #ground_truths = np.empty(shape=(0, class_count), dtype=np.float32)
 
         for image_index, image_by_category in enumerate(images_by_category):
             image_name = list(image_by_category)[0]
@@ -744,8 +740,6 @@ def add_final_retrain_ops(class_count, final_tensor_name, bottleneck_tensor,
             shape=[batch_size, bottleneck_tensor_size],
             name='BottleneckInputPlaceholder')
 
-        #ground_truth_input = tf.placeholder(tf.int64, [batch_size], name='GroundTruthInput')
-
         ground_truth_input = tf.placeholder(tf.float32, [None, class_count],
                                             name='GroundTruthInput')
 
@@ -766,7 +760,6 @@ def add_final_retrain_ops(class_count, final_tensor_name, bottleneck_tensor,
             logits = tf.matmul(bottleneck_input, layer_weights) + layer_biases
             tf.summary.histogram('pre_activations', logits)
 
-    # final_tensor = tf.nn.softmax(logits, name=final_tensor_name)
     final_tensor = tf.nn.sigmoid(logits, name=final_tensor_name)
 
     # The tf.contrib.quantize functions rewrite the graph in place for
@@ -793,7 +786,6 @@ def add_final_retrain_ops(class_count, final_tensor_name, bottleneck_tensor,
         tf.summary.scalar('cross_entropy', cross_entropy_mean)
 
     with tf.name_scope('train'):
-        #optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
         optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
         train_step = optimizer.minimize(cross_entropy_mean)
 

@@ -9,12 +9,14 @@ Follow these steps to train and label your dataset.
 #### Preparing your dataset of images
 The trainer expects all your images to exist inside a folder called `images` within your main directory. In addition to this folder, you'll need to provide a LST file for your training set called `dataset_train.lst` and a LST file for your validation set called `dataset_validation.lst`. These files need to exist in your main directory at the same level as your images folder.
 
+```
 /path-to-dataset
 --> dataset_train.lst
 --> dataset_validation.lst
 --> /images
 ----> image-1.jpg
 ----> image-2.jpg
+```
 
 ##### How to build a Lst file
 Your list file should contain a unique image index, followed by a tab-separated list of binary flags for each label (`1` to indicate label exists in image, and `0` to indicate label doesn't exist), followed by a relative path to the image.
