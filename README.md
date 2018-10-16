@@ -3,6 +3,9 @@ This project modifies the existing `retrain.py` file from Tensorflow Hub and ena
 
 `label_image.py` is a modified version of Tensorflow's example labeling script to accept different image resizing methods.
 
+### Use case
+Somtimes you want to train a dataset where images have more than one label associated with them. For example you may have a flower dataset where each image may have multiple types of flowers in them (roses, sunflowers, tulips, etc).
+
 ### How to use
 Follow these steps to train and label your dataset.
 
@@ -57,7 +60,7 @@ Time to classify your images
 ##### Specify an image resizing method (optional)
 By default script uses `tf.image.ResizeMethod.AREA` for resizing your images before passing them to the model. Using `--resize_method` you can select from `AREA, NEAREST_NEIGHBOR, BILINEAR, BICUBIC`
 
-#### Example
+##### Example
 ```
 python label_image.py --input_height=224 --input_width=224 --graph=/tmp/output_graph.pb --labels=labels.txt --input_layer=Placeholder --output_layer=final_result --image=image.jpg
 ```
