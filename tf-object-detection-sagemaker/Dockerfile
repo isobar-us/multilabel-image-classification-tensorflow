@@ -17,25 +17,36 @@ FROM tensorflow/tensorflow:1.11.0-py3
 
 RUN apt-get update && apt-get install -y --no-install-recommends git curl
 
+#Install protobuff/protoc
+RUN curl -OL https://github.com/google/protobuf/releases/download/v3.2.0/protoc-3.2.0-linux-x86_64.zip
+RUN unzip protoc-3.2.0-linux-x86_64.zip -d protoc3
+RUN mv protoc3/bin/* /usr/local/bin/
+RUN mv protoc3/include/* /usr/local/include/
+
 ENV PATH="/opt/ml/code:${PATH}"
 
 # /opt/ml and all subdirectories are utilized by SageMaker, we use the /code subdirectory to store our user code.
 COPY /resources /opt/ml/code
 WORKDIR /opt/ml/code
 
-# Install Tensorflow's Object Detection API
 RUN pip install --upgrade pip
 RUN pip install matplotlib
 
-RUN cd tensorflow-models/research/slim \
-    pip install -e .
+#RUN cd tensorflow-models/research/slim \
+RUN pip install -e tensorflow-models/research/slim
 
-RUN cd tensorflow-models/research \
-    protoc object_detection/protos/*.proto --python_out=. \
-    python setup.py build \
-    python setup.py install
+#Build and install Tensorflow's Object Detection API
+WORKDIR tensorflow-models/research
+RUN protoc object_detection/protos/*.proto --python_out=.
+RUN python setup.py build
+RUN python setup.py install
 
+WORKDIR /opt/ml/code
+
+#Update the python path to include the object detection API
 ENV PYTHONPATH=${PYTHONPATH}:tensorflow-models/research:tensorflow-models/research/slim:tensorflow-models/research/object_detection
+
+RUN echo $PYTHONPATH
 
 RUN pip install -U scikit-image
 RUN pip install -U cython
