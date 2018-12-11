@@ -137,7 +137,7 @@ if __name__ == '__main__':
                                      str(model_path + '/model.ckpt-' + num_steps_hyperparam),
                                      '--output_directory', str(model_path + '/graph'),
                                      '--add_postprocessing_op', str('true')]
-        lite_freeze_cmd = [python_executable, lite_freezing_script] + freeze_export_params
+        lite_freeze_cmd = [python_executable, lite_freezing_script] + lite_freeze_export_params
         print('Exporting Lite frozen graph...')
         _run(lite_freeze_cmd)
 
