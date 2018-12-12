@@ -79,18 +79,17 @@ def _run(cmd):
         raise Exception(error_msg)
 
 
-def _hyperparameters_to_cmd_args(hyperparameters):
-    """
-    Converts our hyperparameters, in json format, into key-value pair suitable for passing to our training
-    algorithm.
-    """
-    cmd_args_list = []
+def _run_python_script(script_name, params):
+    python_executable = sys.executable
 
-    for key, value in hyperparameters.items():
-        cmd_args_list.append('--{}'.format(key))
-        cmd_args_list.append(value)
+    script_cmd = [python_executable, script_name] + params
+    print('Exporting frozen graph...')
+    _run(script_cmd)
 
-    return cmd_args_list
+
+def _run_command(command, params):
+    command_cmd = [command] + params
+    _run(command_cmd)
 
 
 if __name__ == '__main__':
@@ -105,7 +104,17 @@ if __name__ == '__main__':
 
         print('Loaded training parameters: {}'.format(training_params))
 
-        num_steps_hyperparam = training_params['num_steps']
+        if 'num_steps' in training_params:
+            num_steps_hyperparam = training_params['num_steps']
+        else:
+            print('No value provided for num_steps. Setting value to 100')
+            num_steps_hyperparam = '100'
+
+        if 'quantize' in training_params:
+            quantize = training_params['quantize']
+        else:
+            print('Quantization is not disabled.')
+            quantize = training_params['False']
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         print("Extracted checkpoint files: {}".format(file_list))
@@ -113,47 +122,40 @@ if __name__ == '__main__':
         default_params = ['--model_dir', str(model_path),
                           '--pipeline_config_path', str(tfrecord_config_path),
                           '--num_train_steps', str(num_steps_hyperparam)]
-
-        python_executable = sys.executable
-        cmd_args = _hyperparameters_to_cmd_args(training_params)
-
-        train_cmd = [python_executable, training_script] + default_params
-
         print('Starting the training...')
-        _run(train_cmd)
+        _run_python_script(training_script, default_params)
 
         # freeze and export the graph as .pb
         freeze_export_params = ['--input_type', str('image_tensor'),
                                 '--pipeline_config_path', str(tfrecord_config_path),
                                 '--trained_checkpoint_prefix', str(model_path + '/model.ckpt-' + num_steps_hyperparam),
                                 '--output_directory', str(model_path + '/graph')]
-        freeze_cmd = [python_executable, freezing_script] + freeze_export_params
         print('Exporting frozen graph...')
-        _run(freeze_cmd)
+        _run_python_script(freezing_script, freeze_export_params)
 
-        # freeze and export the graph for tflite processing
-        lite_freeze_export_params = ['--pipeline_config_path', str(tfrecord_config_path),
-                                     '--trained_checkpoint_prefix',
-                                     str(model_path + '/model.ckpt-' + num_steps_hyperparam),
-                                     '--output_directory', str(model_path + '/graph'),
-                                     '--add_postprocessing_op', str('true')]
-        lite_freeze_cmd = [python_executable, lite_freezing_script] + lite_freeze_export_params
-        print('Exporting Lite frozen graph...')
-        _run(lite_freeze_cmd)
+        if bool(quantize):
+            print('Quantizing graph...')
+            # freeze and export the graph for tflite processing
+            lite_freeze_export_params = ['--pipeline_config_path', str(tfrecord_config_path),
+                                         '--trained_checkpoint_prefix',
+                                         str(model_path + '/model.ckpt-' + num_steps_hyperparam),
+                                         '--output_directory', str(model_path + '/graph'),
+                                         '--add_postprocessing_op', str('true')]
+            print('Exporting Lite frozen graph...')
+            _run_python_script(lite_freezing_script, lite_freeze_export_params)
 
-        # quantize and export the tflite graph
-        lite_quant_export_params = ['--output_file', str(model_path + '/graph/tflite_quant_graph.tflite'),
-                                    '--graph_def_file', str(model_path + '/graph/tflite_graph.pb'),
-                                    '--input_shapes', str('1,300,300,3'),
-                                    '--input_arrays', str('normalized_input_image_tensor'),
-                                    '--output_arrays', str('TFLite_Detection_PostProcess,TFLite_Detection_PostProcess:1,TFLite_Detection_PostProcess:2,TFLite_Detection_PostProcess:3'),
-                                    '--inference_type', str('QUANTIZED_UINT8'),
-                                    '--mean_values', str('128'),
-                                    '--std_dev_values', str('128'),
-                                    '--allow_custom_ops']
-        lite_quant_cmd = ['tflite_convert'] + lite_quant_export_params
-        print('Quantizing Lite graph...')
-        _run(lite_quant_cmd)
+            # quantize and export the tflite graph
+            lite_quant_export_params = ['--output_file', str(model_path + '/graph/tflite_quant_graph.tflite'),
+                                        '--graph_def_file', str(model_path + '/graph/tflite_graph.pb'),
+                                        '--input_shapes', str('1,300,300,3'),
+                                        '--input_arrays', str('normalized_input_image_tensor'),
+                                        '--output_arrays', str('TFLite_Detection_PostProcess,TFLite_Detection_PostProcess:1,TFLite_Detection_PostProcess:2,TFLite_Detection_PostProcess:3'),
+                                        '--inference_type', str('QUANTIZED_UINT8'),
+                                        '--mean_values', str('128'),
+                                        '--std_dev_values', str('128'),
+                                        '--allow_custom_ops']
+            print('Quantizing Lite graph...')
+            _run_command('tflite_convert', lite_quant_export_params)
 
         graph_files = os.listdir(model_path + '/graph')
         print('Successfully generated graphs: {}'.format(graph_files))
