@@ -113,7 +113,7 @@ if __name__ == '__main__':
         if 'quantize' in training_params:
             quantize = training_params['quantize']
         else:
-            print('Quantization is not disabled.')
+            print('Quantization is disabled.')
             quantize = training_params['False']
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
