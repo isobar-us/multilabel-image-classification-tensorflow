@@ -83,7 +83,6 @@ def _run_python_script(script_name, params):
     python_executable = sys.executable
 
     script_cmd = [python_executable, script_name] + params
-    print('Exporting frozen graph...')
     _run(script_cmd)
 
 
@@ -107,14 +106,15 @@ if __name__ == '__main__':
         if 'num_steps' in training_params:
             num_steps_hyperparam = training_params['num_steps']
         else:
-            print('No value provided for num_steps. Setting value to 100')
             num_steps_hyperparam = '100'
 
         if 'quantize' in training_params:
-            quantize = training_params['quantize']
+            quantize = bool(training_params['quantize'])
         else:
-            print('Quantization is disabled.')
-            quantize = training_params['False']
+            quantize = False
+
+        print('Setting number of steps to {}'.format(num_steps_hyperparam))
+        print('Setting quantization to {}'.format(quantize))
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         print("Extracted checkpoint files: {}".format(file_list))
@@ -133,8 +133,8 @@ if __name__ == '__main__':
         print('Exporting frozen graph...')
         _run_python_script(freezing_script, freeze_export_params)
 
-        if bool(quantize):
-            print('Quantizing graph...')
+        if quantize:
+            print('Quantizing frozen graph...')
             # freeze and export the graph for tflite processing
             lite_freeze_export_params = ['--pipeline_config_path', str(tfrecord_config_path),
                                          '--trained_checkpoint_prefix',
