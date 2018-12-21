@@ -3,9 +3,7 @@ AWS Sagemaker allows us to bring our own algorithms for training. In our case we
 In order to accomplish this, we'll need to use Tensorflow's object detection API. Since Safemaker doesn't come with Tensforflow
 out of box we'll need to deploy our algorithm and its resources inside a Docker image.
 
-`label_image.py` is a modified version of Tensorflow's example labeling script to accept different image resizing methods.
-
-## Preparing the Sagemaker Docker 
+## Preparing the Sagemaker Docker Container
 
 #### Building the Sagemaker Docker Image
 We'll be using Docker to install Tensorflow API and all its requirements for training object detection models. 
