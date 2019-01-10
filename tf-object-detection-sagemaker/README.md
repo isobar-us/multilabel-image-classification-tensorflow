@@ -3,20 +3,6 @@ AWS Sagemaker allows us to bring our own algorithms for training. In our case we
 In order to accomplish this, we'll need to use Tensorflow's object detection API. Since Safemaker doesn't come with Tensforflow
 out of box we'll need to deploy our algorithm and its resources inside a Docker image.
 
-## Preparing the Sagemaker Docker Container
-
-#### Building the Sagemaker Docker Image
-We'll be using Docker to install Tensorflow API and all its requirements for training object detection models. 
-Our `Dockerfile` chooses the proper version Tensorflow and builds and installs the object detection API. When the environment
-is ready, we run some tests to makes everything installed properly.
-
-#### Deploying the Sagemaker Docker Image to AWS
-After building our Docker image, we'll need to deploy it to AWS as ECR. The ERC path can later be referenced inside our
-Sagemaker training job. `build_and_push.sh` automates the process of building and deploying the Docker image.
-
-```bash
-./build_and_push.sh tf_object_detection_container
-```
 ## Preparing and Configuring the Training Algorithm
 
 #### Generating `TFRecord` files to represent our training and validation dataset
@@ -365,6 +351,21 @@ In order for us to easily access our configuration and training data, we'll need
 `train.records`, `validation.records`, `configuration.config`, `label_map.pbtxt`, and our pre-trained checkpoint 
 (ex. `ssd_mobilenet_v2_quantized_300x300_coco_2018_09_14`).
 
+## Preparing the Sagemaker Docker Container
+
+#### Building the Sagemaker Docker Image
+We'll be using Docker to install Tensorflow API and all its requirements for training object detection models. 
+Our `Dockerfile` chooses the proper version Tensorflow and builds and installs the object detection API. When the environment
+is ready, we run some tests to makes everything installed properly.
+
+#### Deploying the Sagemaker Docker Image to AWS
+After building our Docker image, we'll need to deploy it to AWS as ECR. The ERC path can later be referenced inside our
+Sagemaker training job. `build_and_push.sh` automates the process of building and deploying the Docker image.
+
+```bash
+./build_and_push.sh tf_object_detection_container
+```
+
 ## AWS Sagemaker Training Job
 We're now ready to create a new training job in Sagemaker and point it to our training data and config.
 
@@ -387,3 +388,127 @@ You can choose `application/x-image` for content type and `S3Prefix` for S3 data
 Under `Output data configuration` provide the path to the S3 folder for dropping the models after the training is complete.
 If training is successful, you should end up with a `.pb` model. If you chose `quantize` you will also have a `.tflite` model.
 
+## Inference
+After the training, your model artifacts will be stored in S3 as configured earlier on. The tar.gz output should include 
+the model file `frozen_inference_graph.pb`.
+
+#### Loading and preparing the model for inference
+Un-tar the output and place it somewhere locally.
+
+```python
+import sys
+import tarfile
+import tensorflow as tf
+import zipfile
+from PIL import Image
+import numpy as np
+
+import matplotlib.pyplot as plt
+
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
+
+
+# Path to frozen detection graph. This is the actual model that is used for the object detection.
+PATH_TO_FROZEN_GRAPH = MODEL_BASE + '/frozen_inference_graph.pb'
+
+# List of the strings that is used to add correct label for each box.
+PATH_TO_LABELS = DATASET_BASE + '/label_map.pbtxt'
+
+# Size, in inches, of the output images.
+IMAGE_SIZE = (12, 8)
+
+detection_graph = tf.Graph()
+with detection_graph.as_default():
+  od_graph_def = tf.GraphDef()
+  with tf.gfile.GFile(PATH_TO_FROZEN_GRAPH, 'rb') as fid:
+    serialized_graph = fid.read()
+    od_graph_def.ParseFromString(serialized_graph)
+    tf.import_graph_def(od_graph_def, name='')
+    
+category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+
+print('Loaded model and labels')
+
+```
+
+#### Utility to decode the model output
+```python
+def load_image_into_numpy_array(image):
+  (im_width, im_height) = image.size
+  return np.array(image.getdata()).reshape(
+      (im_height, im_width, 3)).astype(np.uint8)
+
+def run_inference_for_single_image(image, graph):
+  with graph.as_default():
+    with tf.Session() as sess:
+      # Get handles to input and output tensors
+      ops = tf.get_default_graph().get_operations()
+      all_tensor_names = {output.name for op in ops for output in op.outputs}
+      tensor_dict = {}
+      for key in [
+          'num_detections', 'detection_boxes', 'detection_scores',
+          'detection_classes', 'detection_masks'
+      ]:
+        tensor_name = key + ':0'
+        if tensor_name in all_tensor_names:
+          tensor_dict[key] = tf.get_default_graph().get_tensor_by_name(
+              tensor_name)
+      if 'detection_masks' in tensor_dict:
+        # The following processing is only for single image
+        detection_boxes = tf.squeeze(tensor_dict['detection_boxes'], [0])
+        detection_masks = tf.squeeze(tensor_dict['detection_masks'], [0])
+        # Reframe is required to translate mask from box coordinates to image coordinates and fit the image size.
+        real_num_detection = tf.cast(tensor_dict['num_detections'][0], tf.int32)
+        detection_boxes = tf.slice(detection_boxes, [0, 0], [real_num_detection, -1])
+        detection_masks = tf.slice(detection_masks, [0, 0, 0], [real_num_detection, -1, -1])
+        detection_masks_reframed = utils_ops.reframe_box_masks_to_image_masks(
+            detection_masks, detection_boxes, image.shape[0], image.shape[1])
+        detection_masks_reframed = tf.cast(
+            tf.greater(detection_masks_reframed, 0.5), tf.uint8)
+        # Follow the convention by adding back the batch dimension
+        tensor_dict['detection_masks'] = tf.expand_dims(
+            detection_masks_reframed, 0)
+      image_tensor = tf.get_default_graph().get_tensor_by_name('image_tensor:0')
+
+      # Run inference
+      output_dict = sess.run(tensor_dict,
+                             feed_dict={image_tensor: np.expand_dims(image, 0)})
+
+      # all outputs are float32 numpy arrays, so convert types as appropriate
+      output_dict['num_detections'] = int(output_dict['num_detections'][0])
+      output_dict['detection_classes'] = output_dict[
+          'detection_classes'][0].astype(np.uint8)
+      output_dict['detection_boxes'] = output_dict['detection_boxes'][0]
+      output_dict['detection_scores'] = output_dict['detection_scores'][0]
+      if 'detection_masks' in output_dict:
+        output_dict['detection_masks'] = output_dict['detection_masks'][0]
+  return output_dict
+```
+
+#### Run inference against a single image
+```python
+file_name = '/tmp/test.jpg'
+
+image = Image.open(file_name)
+image = image.resize((300,300), Image.ANTIALIAS)
+image_np = load_image_into_numpy_array(image)
+# Expand dimensions since the model expects images to have shape: [1, None, None, 3]
+image_np_expanded = np.expand_dims(image_np, axis=0)
+# Actual detection.
+output_dict = run_inference_for_single_image(image_np, detection_graph)
+# Visualization of the results of a detection.
+vis_util.visualize_boxes_and_labels_on_image_array(
+    image_np,
+    output_dict['detection_boxes'],
+    output_dict['detection_classes'],
+    output_dict['detection_scores'],
+    category_index,
+    instance_masks=output_dict.get('detection_masks'),
+    use_normalized_coordinates=True,
+    min_score_thresh=.3,
+    line_thickness=4)
+plt.figure(figsize=IMAGE_SIZE)
+plt.imshow(image_np)
+plt.show()
+```
