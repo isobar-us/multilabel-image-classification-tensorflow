@@ -3,121 +3,13 @@ AWS Sagemaker allows us to bring our own algorithms for training. In our case we
 In order to accomplish this, we'll need to use Tensorflow's object detection API. Since Safemaker doesn't come with Tensforflow
 out of box we'll need to deploy our algorithm and its resources inside a Docker image.
 
-## Preparing and Configuring the Training Algorithm
+## Preparing dataset and Configuring the Training Algorithm
 
-#### Generating `TFRecord` files to represent our training and validation dataset
-Our object detection algorithm requires our dataset to be in `TFRecords` format. We'll need one for our training set
-`train.records` and another for our validation set `validation.records`.
-
-Assuming we already have the boundary boxes of our images broken down into separate `.txt` files inside `/bbox`, 
-we can use the following code to generate the TFRecord files:
-
-```python
-import os
-import random
-import numpy as np
-from PIL import Image
-
-import tensorflow as tf
-
-from object_detection.utils import dataset_util
-
-
-def shuffle_dataset(files, shuffle_count):
-    count = 0
-    for i in range(0, shuffle_count):
-        random.shuffle(files)
-
-def create_tf_example(bbox_dir, image_dir, image_filename, labels):
-
-    image_name = os.path.splitext(image_filename)[0]
-    image_format = os.path.splitext(image_filename)[1]
-    
-    image_path = image_dir + "/" + image_filename
-    
-    with open(image_path, 'rb') as image_file:
-        image_data = image_file.read()
-        image_data = bytearray(image_data)
-
-    img = Image.open(image_path)
-    width, height = img.size
-    
-    xmins = []
-    xmaxs = []
-    ymins = []
-    ymaxs = []
-    classes_text = []
-    classes = []
-    with open(bbox_dir + "/" + image_name + ".txt", 'r') as annotation_file:
-        annotation_lines = annotation_file.readlines()
-        annotation_lines.pop(0)
-        for annotation_line in annotation_lines:
-            coords = annotation_line.strip().split(" ")
-            x1 = int(coords[0])
-            y1 = int(coords[1])
-            x2 = int(coords[2])
-            y2 = int(coords[3])
-            annotation_label = coords[4]
-            annotation_class_id = labels.index(annotation_label)
-            
-            xmins.append(x1 / width)
-            xmaxs.append(x2 / width)
-            ymins.append(y1 / height)
-            ymaxs.append(y2 / height)
-            classes_text.append(bytes(annotation_label, 'utf-8'))
-            classes.append(annotation_class_id) 
-    
-    tf_example = tf.train.Example(features=tf.train.Features(feature={
-            'image/height': dataset_util.int64_feature(height),
-            'image/width': dataset_util.int64_feature(width),
-            'image/filename': dataset_util.bytes_feature(bytes(image_filename, 'utf-8')),
-            'image/source_id': dataset_util.bytes_feature(bytes(image_filename, 'utf-8')),
-            'image/encoded': dataset_util.bytes_feature(bytes(image_data)),
-            'image/format': dataset_util.bytes_feature(bytes(image_format, 'utf-8')),
-            'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
-            'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
-            'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
-            'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
-            'image/object/class/text': dataset_util.bytes_list_feature(classes_text),
-            'image/object/class/label': dataset_util.int64_list_feature(classes),
-            }))
-    
-    return tf_example
-
-def generate_tf_records(dataset_dir, bbox_dir, dataset_train_dir, dataset_validation_dir, labels):
-    
-    train_writer = tf.python_io.TFRecordWriter(dataset_dir + '/tf_data/train.records')
-    validation_writer = tf.python_io.TFRecordWriter(dataset_dir + '/tf_data/validation.records')
-    
-    files = os.listdir(dataset_train_dir + '/images')
-    shuffle_dataset(files, 3)
-    for file in files:
-        if (file.endswith('.jpg')):
-            tf_example = create_tf_example(bbox_dir, dataset_train_dir + '/images', file, labels)
-            train_writer.write(tf_example.SerializeToString()) 
-        
-    train_writer.close()
-    
-    files = os.listdir(dataset_validation_dir + '/images')
-    shuffle_dataset(files, 3)
-    for file in files:
-        if (file.endswith('.jpg')):
-            tf_example = create_tf_example(bbox_dir, dataset_validation_dir + '/images', file, labels)
-            validation_writer.write(tf_example.SerializeToString())
-    
-    validation_writer.close()
-    
-
-bbox_dir = DATASET_BASE + "/bbox"
-dataset_train_dir = DATASET_BASE + "/train"
-dataset_validation_dir = DATASET_BASE + "/validation"
-labels = ['car', 'person']
-
-generate_tf_records(DATASET_BASE, bbox_dir, dataset_train_dir, dataset_validation_dir, labels)
-```
-
-Note that `/bbox` holds a `.txt` per image with the coordinates of object boundary boxes inside that image. We used
-[BBox-Label-Tool](https://github.com/xiaqunfeng/BBox-Label-Tool) to generate our boundary boxes.
+#### Generating the boundary boxes on dataset
+Before we start, we have to create boundary boxes for every object in every image of our dataset. 
+We used [BBox-Label-Tool](https://github.com/xiaqunfeng/BBox-Label-Tool) to generate our boundary boxes.
+This tool generates a txt file for each image to hold the location of objects in that image and looks something like
+this:
 
 ```text
 2
@@ -125,23 +17,33 @@ Note that `/bbox` holds a `.txt` per image with the coordinates of object bounda
 1189 619 2708 1356 person
 ```
 
-The actual training and validation images are placed inside `/train` and `/validation` respectively.
+#### Generating `TFRecord` and `label_map.pbtxt`
+Our object detection algorithm requires our dataset to be in `TFRecords` format. We'll need one for our training set
+`train.records` and another for our validation set `validation.records`. In addition to these files, we also need to
+specify our labels in `label_map.pbtxt`. You can use `tfrecord-generator.py` under /scripts to generate all three files:
 
-#### Generating `label_map.pbtxt` to represent our labels
-Tensforlow object detection API requires `label_map.pbtxt` for providing the name and index of each label.
-
-```text
-item {
-  id: 1
-  name: 'car'
-}
-
-item {
-  id: 2
-  name: 'person'
-}
+```bash
+python scripts/tfrecord-generator.py --dataset_base=my_dataset_base --labels_path=labels.txt
 ```
-#### Generating `configuration.config` to represent our object detection configurations
+Assuming your dataset has the following layout:
+```
+/<my_dataset_base>
+--> /train
+----> /images
+------> image-1.jpg
+------> image-2.jpg
+--> /validation
+----> /images
+------> image-1.jpg
+------> image-2.jpg
+--> /bbox
+------> image-1.txt
+------> image-2.txt
+```
+
+The three file will be generated under `<my_dataset_base>/tf_data`.
+
+#### Create `configuration.config` to represent our object detection configurations
 Tensorflow object detection API requires a configuration file to provide the parameters for the training algorithm.
 In it, you can specify which image recognition algorithm to use, the number of classes, number of images per batch, etc.
 We used MobileNets-v2 for training a model that is optimized to run on a mobile device.
