@@ -1,6 +1,6 @@
 import argparse
 
-from .utils.tf_record_util import TfRecordGenerator
+from utils.tf_record_util import TfRecordGenerator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
