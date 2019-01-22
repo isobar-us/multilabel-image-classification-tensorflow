@@ -23,6 +23,12 @@ if __name__ == '__main__':
         help='Path to the image being evaluated.'
     )
     parser.add_argument(
+        '--min_score_thresh',
+        type=float,
+        default=.3,
+        help='Minimum score threshold used for visualization.'
+    )
+    parser.add_argument(
         '--visualize',
         type=bool,
         default=True,
@@ -34,16 +40,18 @@ if __name__ == '__main__':
     label_path = FLAGS.label_path
     image_path = FLAGS.image_path
     visualize = FLAGS.visualize
+    min_score_thresh = FLAGS.min_score_thresh
 
     print('Frozen graph path set to {}'.format(frozen_graph_path))
     print('Label path set to {}'.format(label_path))
     print('Image path set to {}'.format(image_path))
     print('Visualize flag set to {}'.format(visualize))
+    print('Minimum score threshold set to {}'.format(min_score_thresh))
 
     tf_graph = TFGraph(label_path, frozen_graph_path)
 
     if visualize:
-        tf_graph.visualize_inference_for_single_image(image_path)
+        tf_graph.visualize_inference_for_single_image(image_path=image_path, min_score_thresh=min_score_thresh)
     else:
         output_dict = tf_graph.run_inference_for_single_image(image_path)
         print(output_dict)
