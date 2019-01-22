@@ -11,7 +11,7 @@ if __name__ == '__main__':
         help='Path to dataset base. Should include the /bbox, /train, and /validation folders'
     )
     parser.add_argument(
-        '--labels_path',
+        '--label_path',
         type=str,
         default='',
         help='Path to a list of labels'
@@ -24,7 +24,7 @@ if __name__ == '__main__':
     dataset_train_dir = DATASET_BASE + "/train"
     dataset_validation_dir = DATASET_BASE + "/validation"
 
-    with open(FLAGS.labels_path, 'r') as labels_file:
+    with open(FLAGS.label_path, 'r') as labels_file:
         label_list = [line.strip() for line in labels_file.readlines()]
 
     print('Loaded labels {}'.format(label_list))
