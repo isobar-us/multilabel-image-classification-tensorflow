@@ -116,4 +116,4 @@ class TFGraph:
             line_thickness=line_thickness)
         plt.figure(figsize=output_image_size)
         plt.imshow(image_np)
-        plt.show()
+        plt.show();
