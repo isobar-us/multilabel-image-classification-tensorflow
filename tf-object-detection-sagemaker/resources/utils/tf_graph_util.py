@@ -100,11 +100,14 @@ class TFGraph:
 
         return self._run_inference_for_single_image(image_np)
 
-    def visualize_inference_for_single_image(self, image_path, output_image_size=(12, 8)):
+    def visualize_inference_for_single_image(self, image_path,
+                                             min_score_thresh=.3,
+                                             line_thickness=4,
+                                             output_image_size=(12, 8)):
         image_np = load_image_into_numpy_array_from_path(image_path)
 
         # Actual detection.
-        output_dict = self.run_inference_for_single_image(image_np)
+        output_dict = self._run_inference_for_single_image(image_np)
         # Visualization of the results of a detection.
         vis_util.visualize_boxes_and_labels_on_image_array(
             image_np,
@@ -114,11 +117,8 @@ class TFGraph:
             self.category_index,
             instance_masks=output_dict.get('detection_masks'),
             use_normalized_coordinates=True,
-            min_score_thresh=.3,
-            line_thickness=4)
+            min_score_thresh=min_score_thresh,
+            line_thickness=line_thickness)
         plt.figure(figsize=output_image_size)
         plt.imshow(image_np)
         plt.show()
-
-
-
