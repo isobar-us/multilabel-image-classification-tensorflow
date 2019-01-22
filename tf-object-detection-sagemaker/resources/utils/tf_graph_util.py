@@ -50,8 +50,6 @@ class TFGraph:
 
         self.category_index = label_map_util.create_category_index_from_labelmap(self.label_path, use_display_name=True)
 
-        return detection_graph
-
     def _run_inference_for_single_image(self, image_numpy):
         with self.detection_graph.as_default():
             with tf.Session() as sess:
