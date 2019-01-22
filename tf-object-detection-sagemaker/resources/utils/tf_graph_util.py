@@ -1,12 +1,9 @@
-import sys
-import tarfile
-import tensorflow as tf
-import zipfile
-from PIL import Image
+%pylab inline
+
 import numpy as np
-
-import matplotlib.pyplot as plt
-
+import tensorflow as tf
+from PIL import Image
+from matplotlib import pyplot as plt
 from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
 
