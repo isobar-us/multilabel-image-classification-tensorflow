@@ -41,3 +41,5 @@ if __name__ == '__main__':
     print('Generating label_map.pbtxt...')
     tf_record_generator.generate_label_map()
 
+    print('Finished generating all files.')
+

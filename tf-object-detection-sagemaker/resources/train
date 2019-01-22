@@ -24,7 +24,7 @@ import traceback
 
 import tensorflow as tf
 
-from .utils import commandline_util
+from utils import commandline_util
 
 # These are the paths to where SageMaker mounts interesting things in your container.
 prefix = '/opt/ml/'
