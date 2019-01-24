@@ -20,25 +20,25 @@ this:
 #### Generating `TFRecord` and `label_map.pbtxt`
 Our object detection algorithm requires our dataset to be in `TFRecords` format. We'll need one for our training set
 `train.records` and another for our validation set `validation.records`. In addition to these files, we also need to
-specify our labels in `label_map.pbtxt`. You can use `tfrecord-generator.py` under /scripts to generate all three files:
+specify our labels in `label_map.pbtxt`. You can use `tfrecord_generator.py` under /resources to generate all three files:
 
 ```bash
-python python resources/tfrecord_generator.py --dataset_base=my_dataset_base --label_path=labels.txt
+python resources/tfrecord_generator.py --dataset_base=my_dataset_base --label_path=labels.txt
 ```
 Assuming your dataset has the following layout:
 ```
 /<my_dataset_base>
---> /train
+-> /train
 ----> /images
-------> image-1.jpg
-------> image-2.jpg
---> /validation
+-------> image-1.jpg
+-------> image-2.jpg
+-> /validation
 ----> /images
-------> image-1.jpg
-------> image-2.jpg
---> /bbox
-------> image-1.txt
-------> image-2.txt
+-------> image-1.jpg
+-------> image-2.jpg
+-> /bbox
+----> image-1.txt
+----> image-2.txt
 ```
 
 The three file will be generated under `<my_dataset_base>/tf_data`.
@@ -250,8 +250,11 @@ has a list of pre-trained models for us to download. You can add a reference to 
 
 #### Upload configuration inputs to AWS S3
 In order for us to easily access our configuration and training data, we'll need to upload the following files to S3:
-`train.records`, `validation.records`, `configuration.config`, `label_map.pbtxt`, and our pre-trained checkpoint 
-(ex. `ssd_mobilenet_v2_quantized_300x300_coco_2018_09_14`).
+* `train.records`
+* `validation.records`
+* `configuration.config`
+* `label_map.pbtxt`
+* and our pre-trained checkpoint (ex. `ssd_mobilenet_v2_quantized_300x300_coco_2018_09_14`).
 
 ## Preparing the Sagemaker Docker Container
 
@@ -277,14 +280,17 @@ you can provide the path to the Docker image in ECR.
 
 #### Configure Input Data Channels
 We'll need to provide the path to our training and configuration files that we uploaded to S3. Configure the following channels:
-`train` points to `train.records`, `validation` points to `validation.records`, `config` points to `configuration.config`,
-`label` points to `label_map.pbtxt`, and `checkpoint` points to `ssd_mobilenet_v2_quantized_300x300_coco_2018_09_14`. 
+* `train`: points to `train.records` 
+* `validation`: points to `validation.records` 
+* `config`: points to `configuration.config`,
+* `label`: points to `label_map.pbtxt`
+* `checkpoint`: points to `ssd_mobilenet_v2_quantized_300x300_coco_2018_09_14`
+
 You can choose `application/x-image` for content type and `S3Prefix` for S3 data type (ex. `s3://bucket/train.records`).
 
 #### Configure Hyper Parameters
-`num_steps`: number of steps to train the model (ex. 1000)
-
-`quantize`: whether the model should also generate a TFLite model to run on mobile devices (ex. True)
+* `num_steps`: number of steps to train the model (ex. 1000)
+* `quantize`: whether the model should also generate a TFLite model to run on mobile devices (ex. True)
 
 #### Configure the output S3 folder
 Under `Output data configuration` provide the path to the S3 folder for dropping the models after the training is complete.
@@ -298,5 +304,5 @@ the model file `frozen_inference_graph.pb`.
 Un-tar the output and place it somewhere locally. Now you can use `tf_graph_evaluator.py` script to visualize your model:
 
 ```bash
-python python resources/tf_graph_evaluator.py --frozen_graph_path=frozen_graph.pb --label_path=labels.pbtxt --image_path=test.jpg
+python resources/tf_graph_evaluator.py --frozen_graph_path=frozen_graph.pb --label_path=labels.pbtxt --image_path=test.jpg
 ```

@@ -1,4 +1,5 @@
 import numpy as np
+import io
 import tensorflow as tf
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -23,10 +24,18 @@ def load_image_into_numpy_array_from_path(image_path):
 
     return image_np
 
+def load_image_into_numpy_array_from_bytes(image_bytes):
+    image = Image.open(io.BytesIO(image_bytes))
+    image = image.resize((300, 300), Image.ANTIALIAS)
+    image_np = load_image_into_numpy_array(image)
+    # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
+    image_np_expanded = np.expand_dims(image_np, axis=0)
+
+    return image_np
+
 
 class TFGraph:
-
-    def __init__(self,  label_path, frozen_graph_path):
+    def __init__(self, label_path, frozen_graph_path):
         self.label_path = label_path
         self.frozen_graph_path = frozen_graph_path
 
@@ -90,15 +99,20 @@ class TFGraph:
                     output_dict['detection_masks'] = output_dict['detection_masks'][0]
         return output_dict
 
-    def run_inference_for_single_image(self, image_path):
+    def run_inference_for_single_image_from_bytes(self, image_bytes):
+        image_np = load_image_into_numpy_array_from_bytes(image_bytes)
+
+        return self._run_inference_for_single_image(image_np)
+
+    def run_inference_for_single_image_from_path(self, image_path):
         image_np = load_image_into_numpy_array_from_path(image_path)
 
         return self._run_inference_for_single_image(image_np)
 
-    def visualize_inference_for_single_image(self, image_path,
-                                             min_score_thresh=.3,
-                                             line_thickness=4,
-                                             output_image_size=(12, 8)):
+    def visualize_inference_for_single_image_from_path(self, image_path,
+                                                       min_score_thresh=.3,
+                                                       line_thickness=4,
+                                                       output_image_size=(12, 8)):
         image_np = load_image_into_numpy_array_from_path(image_path)
 
         # Actual detection.

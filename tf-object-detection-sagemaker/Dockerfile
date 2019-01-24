@@ -15,7 +15,7 @@
 # https://docs.docker.com/compose/gettingstarted/#step-2-create-a-dockerfile
 FROM tensorflow/tensorflow:1.11.0-py3
 
-RUN apt-get update && apt-get install -y --no-install-recommends git curl
+RUN apt-get update && apt-get install -y --no-install-recommends git curl nginx wget ca-certificates
 
 #Install protobuff/protoc
 RUN curl -OL https://github.com/google/protobuf/releases/download/v3.2.0/protoc-3.2.0-linux-x86_64.zip
@@ -49,7 +49,12 @@ ENV PYTHONPATH=${PYTHONPATH}:tensorflow-models/research:tensorflow-models/resear
 RUN echo $PYTHONPATH
 
 RUN pip install -U scikit-image
+RUN pip install -U scikit-learn
+RUN pip install -U flask
+RUN pip install -U gevent
+RUN pip install -U gunicorn
 RUN pip install -U cython
+RUN pip install -U scipy
 RUN pip install "git+https://github.com/philferriere/cocoapi.git#egg=pycocotools&subdirectory=PythonAPI"
 
 # Test Tensorflow's Object Detection API

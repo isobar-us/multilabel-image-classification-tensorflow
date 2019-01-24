@@ -51,9 +51,9 @@ if __name__ == '__main__':
     tf_graph = TFGraph(label_path, frozen_graph_path)
 
     if visualize:
-        tf_graph.visualize_inference_for_single_image(image_path=image_path, min_score_thresh=min_score_thresh)
+        tf_graph.visualize_inference_for_single_image_from_path(image_path=image_path, min_score_thresh=min_score_thresh)
     else:
-        output_dict = tf_graph.run_inference_for_single_image(image_path)
+        output_dict = tf_graph.run_inference_for_single_image_from_path(image_path)
         print(output_dict)
 
 
