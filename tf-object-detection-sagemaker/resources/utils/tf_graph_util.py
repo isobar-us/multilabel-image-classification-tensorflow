@@ -24,6 +24,7 @@ def load_image_into_numpy_array_from_path(image_path):
 
     return image_np
 
+
 def load_image_into_numpy_array_from_bytes(image_bytes):
     image = Image.open(io.BytesIO(image_bytes))
     image = image.resize((300, 300), Image.ANTIALIAS)

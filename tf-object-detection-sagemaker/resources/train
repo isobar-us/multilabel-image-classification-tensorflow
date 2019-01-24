@@ -21,6 +21,8 @@ import json
 import os
 import sys
 import traceback
+from shutil import copyfile
+
 
 import tensorflow as tf
 
@@ -116,6 +118,8 @@ if __name__ == '__main__':
                                         '--allow_custom_ops']
             print('Quantizing Lite graph...')
             commandline_util.run_command('tflite_convert', lite_quant_export_params)
+
+        copyfile(tfrecord_label_path, model_path + '/graph')
 
         graph_files = os.listdir(model_path + '/graph')
         print('Successfully generated graphs: {}'.format(graph_files))
