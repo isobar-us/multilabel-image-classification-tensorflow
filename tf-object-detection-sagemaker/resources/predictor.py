@@ -8,7 +8,7 @@ prefix = '/opt/ml/'
 input_path = os.path.join(prefix, 'input/data')
 model_path = os.path.join(prefix, 'model')
 frozen_graph_path = os.path.join(model_path, 'graph/frozen_inference_graph.pb')
-label_path = os.path.join(input_path, 'label/label_map.pbtxt')
+label_path = os.path.join(model_path, 'graph/label_map.pbtxt')
 
 
 # A singleton for holding the model. This simply loads the model and holds it.

@@ -119,7 +119,7 @@ if __name__ == '__main__':
             print('Quantizing Lite graph...')
             commandline_util.run_command('tflite_convert', lite_quant_export_params)
 
-        copyfile(tfrecord_label_path, model_path + '/graph')
+        copyfile(tfrecord_label_path, model_path + '/graph/label_map.pbtxt')
 
         graph_files = os.listdir(model_path + '/graph')
         print('Successfully generated graphs: {}'.format(graph_files))
