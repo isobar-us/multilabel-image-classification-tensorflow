@@ -49,7 +49,7 @@ $(aws ecr get-login --region ${region} --no-include-email)
 
 echo "Building image with name ${image}"
 
-docker build -t ${image} .
+docker build --no-cache -t ${image} .
 docker tag ${image} ${fullname}
 
 echo "Pushing image to ECR ${fullname}"
