@@ -1,4 +1,6 @@
 import os
+import logging
+import json
 
 import flask
 
@@ -27,11 +29,13 @@ class ScoringService(object):
         return cls.graph
 
     @classmethod
-    def predict(cls, request):
+    def predict(cls, image_data):
         """For the input, do the predictions and return them."""
 
-        clf = cls.get_graph()
-        return clf.predict(input)
+        tf_graph = cls.get_graph()
+        inference_result = tf_graph.run_inference_for_single_image_from_bytes(image_data)
+
+        return inference_result
 
 
 # The flask app for serving predictions
@@ -58,9 +62,16 @@ def invoke():
     """
     data = None
 
-    print('Invoked with content_type {}'.format(flask.request.content_type))
+    logging.info('Invoked with content_type {}'.format(flask.request.content_type))
 
     if flask.request.content_type == 'application/x-image':
+        logging.info('Running inference on image...')
+
         image_data = flask.request.data
+
+        inference_result = ScoringService.predict(image_data)
+
+        return flask.Response(response=json.dumps(inference_result), status=200, mimetype='application/json')
+
 
     return flask.Response(response="{\"status\" : \"success\"}", status=200, mimetype='application/json')
