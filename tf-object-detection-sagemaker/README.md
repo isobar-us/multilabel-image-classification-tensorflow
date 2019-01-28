@@ -296,7 +296,7 @@ You can choose `application/x-image` for content type and `S3Prefix` for S3 data
 Under `Output data configuration` provide the path to the S3 folder for dropping the models after the training is complete.
 If training is successful, you should end up with a `.pb` model. If you chose `quantize` you will also have a `.tflite` model.
 
-## Inference
+## Testing the Model
 After the training, your model artifacts will be stored in S3 as configured earlier on. The tar.gz output should include 
 the model file `frozen_inference_graph.pb`.
 
@@ -305,4 +305,102 @@ Un-tar the output and place it somewhere locally. Now you can use `tf_graph_eval
 
 ```bash
 python resources/tf_graph_evaluator.py --frozen_graph_path=frozen_graph.pb --label_path=labels.pbtxt --image_path=test.jpg
+```
+
+## Hosting the Model in Sagemaker
+It's time to host our model in AWS. Sagemaker allows us to deploy our model to an endpoint. In your Sagemaker Notebook
+execute the following code.
+
+#### Package your model
+```python
+%%time
+import boto3
+import re
+from sagemaker import get_execution_role
+from sagemaker.amazon.amazon_estimator import get_image_uri
+import boto3
+from time import gmtime, strftime
+
+role = get_execution_role()
+
+sage = boto3.Session().client(service_name='sagemaker') 
+
+job_name='training_job_name'
+
+model_name=job_name
+
+print(model_name)
+info = sage.describe_training_job(TrainingJobName=job_name)
+model_data = info['ModelArtifacts']['S3ModelArtifacts']
+print(model_data)
+
+hosting_image = 'ecr_docker_image_name'
+
+primary_container = {
+    'Image': hosting_image,
+    'ModelDataUrl': model_data,
+}
+
+create_model_response = sage.create_model(
+    ModelName = model_name,
+    ExecutionRoleArn = role,
+    PrimaryContainer = primary_container)
+
+print(create_model_response['ModelArn'])
+```
+* `job_name`: the name of your job that trained your model in Sagemaker
+* `hosting_image`: the ECR name that you used when uploading your Docker image
+
+#### Define Endpoint Configuration
+```python
+import time
+from time import gmtime, strftime
+
+endpoint_config_name = job_name + '-epc'
+endpoint_config_response = sage.create_endpoint_config(
+    EndpointConfigName = endpoint_config_name,
+    ProductionVariants=[{
+        'InstanceType':'ml.p2.xlarge',
+        'InitialInstanceCount':1,
+        'ModelName':model_name,
+        'VariantName':'AllTraffic'}])
+
+print('Endpoint configuration name: {}'.format(endpoint_config_name))
+print('Endpoint configuration arn:  {}'.format(endpoint_config_response['EndpointConfigArn']))
+```
+
+#### Define Endpoint
+```python
+import time
+
+endpoint_name = job_name + '-ep'
+print('Endpoint name: {}'.format(endpoint_name))
+
+endpoint_params = {
+    'EndpointName': endpoint_name,
+    'EndpointConfigName': endpoint_config_name,
+}
+endpoint_response = sage.create_endpoint(**endpoint_params)
+print('EndpointArn = {}'.format(endpoint_response['EndpointArn']))
+```
+
+#### Create Endpoint
+```python
+# get the status of the endpoint
+response = sage.describe_endpoint(EndpointName=endpoint_name)
+status = response['EndpointStatus']
+print('EndpointStatus = {}'.format(status))
+
+
+# wait until the status has changed
+sage.get_waiter('endpoint_in_service').wait(EndpointName=endpoint_name)
+
+
+# print the status of the endpoint
+endpoint_response = sage.describe_endpoint(EndpointName=endpoint_name)
+status = endpoint_response['EndpointStatus']
+print('Endpoint creation ended with EndpointStatus = {}'.format(status))
+
+if status != 'InService':
+    raise Exception('Endpoint creation failed.')
 ```
