@@ -120,6 +120,7 @@ if __name__ == '__main__':
             commandline_util.run_command('tflite_convert', lite_quant_export_params)
 
         copyfile(tfrecord_label_path, model_path + '/graph/label_map.pbtxt')
+        copyfile(param_path, model_path + '/graph/hyperparameters.json')
 
         graph_files = os.listdir(model_path + '/graph')
         print('Successfully generated graphs: {}'.format(graph_files))

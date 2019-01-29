@@ -11,6 +11,7 @@ input_path = os.path.join(prefix, 'input/data')
 model_path = os.path.join(prefix, 'model')
 frozen_graph_path = os.path.join(model_path, 'graph/frozen_inference_graph.pb')
 label_path = os.path.join(model_path, 'graph/label_map.pbtxt')
+param_path = os.path.join(prefix, 'graph/hyperparameters.json')
 
 
 # A singleton for holding the model. This simply loads the model and holds it.
@@ -19,6 +20,15 @@ label_path = os.path.join(model_path, 'graph/label_map.pbtxt')
 
 class ScoringService(object):
     graph = None  # Where we keep the model when it's loaded
+    training_params = None
+
+    @classmethod
+    def get_training_params(cls):
+        if cls.training_params is None:
+            with open(param_path, 'r') as tc:
+                cls.training_params = json.load(tc)
+
+        return cls.training_params
 
     @classmethod
     def get_graph(cls):
@@ -29,11 +39,11 @@ class ScoringService(object):
         return cls.graph
 
     @classmethod
-    def predict(cls, image_data):
+    def predict(cls, image_data, image_size):
         """For the input, do the predictions and return them."""
 
         tf_graph = cls.get_graph()
-        inference_result = tf_graph.run_inference_for_single_image_from_bytes(image_data)
+        inference_result = tf_graph.run_inference_for_single_image_from_bytes(image_data, image_size)
 
         return inference_result
 
@@ -60,7 +70,6 @@ def invoke():
     it to a pandas data frame for internal use and then convert the predictions back to CSV (which really
     just means one prediction per line, since there's a single column.
     """
-    data = None
 
     logging.info('Invoked with content_type {}'.format(flask.request.content_type))
 
@@ -69,8 +78,12 @@ def invoke():
 
         image_data = flask.request.data
 
+        training_params = ScoringService.get_training_params()
+
+        image_size = training_params['image_size']
+
         # run inference on image
-        inference_result = ScoringService.predict(image_data)
+        inference_result = ScoringService.predict(image_data, image_size)
 
         # convert inference result to json
         prediction_objects = []
