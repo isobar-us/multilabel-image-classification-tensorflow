@@ -69,9 +69,27 @@ def invoke():
 
         image_data = flask.request.data
 
+        # run inference on image
         inference_result = ScoringService.predict(image_data)
 
-        return flask.Response(response=json.dumps(inference_result), status=200, mimetype='application/json')
+        # convert inference result to json
+        prediction_objects = []
+        predictions = {}
+        detection_classes = inference_result['detection_classes']
+        detection_boxes = inference_result['detection_boxes']
+        detection_scores = inference_result['detection_scores']
+        for index, detection_class in enumerate(detection_classes):
+            detection_box = detection_boxes[index]
+            detection_score = detection_scores[index]
+
+            prediction_object = [float(detection_class - 1), float(detection_score)]
+            prediction_object.extend(detection_box.astype(float))
+
+            prediction_objects.append(prediction_object)
+
+        predictions['prediction'] = prediction_objects
+
+        return flask.Response(response=json.dumps(predictions), status=200, mimetype='application/json')
 
 
-    return flask.Response(response="{\"status\" : \"success\"}", status=200, mimetype='application/json')
+    return flask.Response(response="{\"reason\" : \"Request is not application/x-image\"}", status=400, mimetype='application/json')
