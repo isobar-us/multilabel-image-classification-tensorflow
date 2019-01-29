@@ -45,7 +45,7 @@ if __name__ == '__main__':
     frozen_graph_path = FLAGS.frozen_graph_path
     label_path = FLAGS.label_path
     image_path = FLAGS.image_path
-    visualize = FLAGS.visualize == 'True'
+    visualize = str(FLAGS.visualize).lower() == 'true'
     min_score_thresh = float(FLAGS.min_score_thresh)
     image_size = int(FLAGS.image_size)
 

@@ -71,7 +71,7 @@ if __name__ == '__main__':
             num_steps_hyperparam = '100'
 
         if 'quantize' in training_params:
-            quantize = bool(training_params['quantize'])
+            quantize = str(training_params['quantize']).lower() == 'true'
         else:
             quantize = False
 
