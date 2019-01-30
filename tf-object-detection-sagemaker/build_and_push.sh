@@ -6,6 +6,7 @@
 # The argument to this script is the image name. This will be used as the image on the local
 # machine and combined with the account and region to form the repository name for ECR.
 image=$1
+architecture=$2
 
 if [ "$image" == "" ]
 then
@@ -49,7 +50,7 @@ $(aws ecr get-login --region ${region} --no-include-email)
 
 echo "Building image with name ${image}"
 
-docker build --no-cache -t ${image} .
+docker build --no-cache -t ${image} -f Dockerfile.${architecture} .
 docker tag ${image} ${fullname}
 
 echo "Pushing image to ECR ${fullname}"
