@@ -57,5 +57,3 @@ RUN pip install -U cython
 RUN pip install -U scipy
 RUN pip install "git+https://github.com/philferriere/cocoapi.git#egg=pycocotools&subdirectory=PythonAPI"
 
-# Test Tensorflow's Object Detection API
-RUN python tensorflow-models/research/object_detection/builders/model_builder_test.py

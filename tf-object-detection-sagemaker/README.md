@@ -265,10 +265,20 @@ is ready, we run some tests to makes everything installed properly.
 
 #### Deploying the Sagemaker Docker Image to AWS
 After building our Docker image, we'll need to deploy it to AWS as ECR. The ERC path can later be referenced inside our
-Sagemaker training job. `build_and_push.sh` automates the process of building and deploying the Docker image.
+Sagemaker training job. `build_and_push.sh` automates the process of building and deploying the Docker image. The script
+takes two parameters: 
+* image name
+* processing architecture (ex. gpu, cpu)
 
+##### GPU
+Build the image to run on GPU (make sure your instance is GPU enabled)
 ```bash
-./build_and_push.sh tf_object_detection_container
+./build_and_push.sh tf_object_detection_container gpu
+```
+##### CPU
+Build the image to run on CPU only 
+```bash
+./build_and_push.sh tf_object_detection_container cpu
 ```
 
 ## AWS Sagemaker Training Job

@@ -32,7 +32,7 @@ region=$(aws configure get region)
 region=${region:-us-west-2}
 
 
-fullname="${account}.dkr.ecr.${region}.amazonaws.com/${image}:latest"
+fullname="${account}.dkr.ecr.${region}.amazonaws.com/${image}-${architecture}:latest"
 
 # If the repository doesn't exist in ECR, create it.
 
