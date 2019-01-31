@@ -16,6 +16,7 @@ fi
 
 chmod +x resources/train
 chmod +x resources/serve
+chmod +x resources/test
 
 # Get the account number associated with the current IAM credentials
 account=$(aws sts get-caller-identity --query Account --output text)
@@ -52,6 +53,14 @@ echo "Building image with name ${image}"
 
 docker build --no-cache -t ${image} -f Dockerfile.${architecture} .
 docker tag ${image} ${fullname}
+
+# Test the tensorflow installation
+if [${architecture} -eq 'gpu']
+then
+    docker run --runtime=nvidia tf_object_detection_container test
+else
+    docker run tf_object_detection_container test
+fi
 
 echo "Pushing image to ECR ${fullname}"
 

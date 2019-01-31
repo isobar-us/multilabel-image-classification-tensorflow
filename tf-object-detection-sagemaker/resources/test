@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+from utils import commandline_util
+import sys
+
+TEST_SCRIPT = '/opt/ml/code/tensorflow-models/research/object_detection/builders/model_builder_test.py'
+
+if __name__ == '__main__':
+    print('Testing Tensorflow installtion ...')
+
+    python_executable = sys.executable
+
+    script_cmd = [python_executable, TEST_SCRIPT]
+    commandline_util.run(script_cmd)
