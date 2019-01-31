@@ -32,7 +32,7 @@ region=$(aws configure get region)
 region=${region:-us-west-2}
 
 
-fullname="${account}.dkr.ecr.${region}.amazonaws.com/${image}-${architecture}:latest"
+fullname="${account}.dkr.ecr.${region}.amazonaws.com/${image}:latest-${architecture}"
 
 # If the repository doesn't exist in ECR, create it.
 
@@ -55,7 +55,7 @@ docker build --no-cache -t ${image} -f Dockerfile.${architecture} .
 docker tag ${image} ${fullname}
 
 # Test the tensorflow installation
-if [[ ${architecture} -eq 'gpu' ]]
+if [ "${architecture}" -eq "gpu" ]
 then
     docker run --runtime=nvidia ${image} test
 else
