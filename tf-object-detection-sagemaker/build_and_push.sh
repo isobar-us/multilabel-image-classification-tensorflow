@@ -8,7 +8,7 @@
 image=$1
 architecture=$2
 
-if [ "$image" == "" ]
+if [[ "$image" == "" ]]
 then
     echo "Usage: $0 <image-name>"
     exit 1
@@ -21,7 +21,7 @@ chmod +x resources/test
 # Get the account number associated with the current IAM credentials
 account=$(aws sts get-caller-identity --query Account --output text)
 
-if [ $? -ne 0 ]
+if [[ $? -ne 0 ]]
 then
     exit 255
 fi
@@ -38,7 +38,7 @@ fullname="${account}.dkr.ecr.${region}.amazonaws.com/${image}:latest-${architect
 
 aws ecr describe-repositories --repository-names "${image}" > /dev/null 2>&1
 
-if [ $? -ne 0 ]
+if [[ $? -ne 0 ]]
 then
     aws ecr create-repository --repository-name "${image}" > /dev/null
 fi
@@ -55,7 +55,7 @@ docker build --no-cache -t ${image} -f Dockerfile.${architecture} .
 docker tag ${image} ${fullname}
 
 # Test the tensorflow installation
-if [ "${architecture}" -eq "gpu" ]
+if [[ "${architecture}" == "gpu" ]]
 then
     docker run --runtime=nvidia ${image} test
 else
