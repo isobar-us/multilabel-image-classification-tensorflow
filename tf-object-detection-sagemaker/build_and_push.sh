@@ -57,9 +57,9 @@ docker tag ${image} ${fullname}
 # Test the tensorflow installation
 if [[ ${architecture} -eq 'gpu' ]]
 then
-    docker run --runtime=nvidia tf_object_detection_container test
+    docker run --runtime=nvidia ${image} test
 else
-    docker run tf_object_detection_container test
+    docker run ${image} test
 fi
 
 echo "Pushing image to ECR ${fullname}"
