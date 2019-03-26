@@ -80,11 +80,17 @@ if __name__ == '__main__':
         else:
             image_size = '300'
 
+        if 'inference_type' in training_params:
+            inference_type = training_params['inference_type'].upper()
+        else:
+            inference_type = 'FLOAT'
+
         image_shape = ','.join(['1', image_size, image_size, '3'])
 
         print('Setting number of steps to {}'.format(num_steps_hyperparam))
         print('Setting quantization to {}'.format(quantize))
         print('Setting image shape to {}'.format(image_shape))
+        print('Setting inference type to {}'.format(inference_type))
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         print("Extracted checkpoint files: {}".format(file_list))
@@ -114,18 +120,35 @@ if __name__ == '__main__':
             print('Exporting Lite frozen graph...')
             commandline_util.run_python_script(lite_freezing_script, lite_freeze_export_params)
 
-            # quantize and export the tflite graph
-            lite_quant_export_params = ['--output_file', str(model_path + '/graph/tflite_quant_graph.tflite'),
-                                        '--graph_def_file', str(model_path + '/graph/tflite_graph.pb'),
-                                        '--input_shapes', image_shape,
-                                        '--input_arrays', str('normalized_input_image_tensor'),
-                                        '--output_arrays', str('TFLite_Detection_PostProcess,TFLite_Detection_PostProcess:1,TFLite_Detection_PostProcess:2,TFLite_Detection_PostProcess:3'),
-                                        '--inference_type', str('QUANTIZED_UINT8'),
-                                        '--mean_values', str('128'),
-                                        '--std_dev_values', str('128'),
-                                        '--allow_custom_ops']
-            print('Quantizing Lite graph...')
-            commandline_util.run_command('tflite_convert', lite_quant_export_params)
+            graph_def_file = str(model_path + '/graph/tflite_graph.pb')
+            output_tflite_graph = str(model_path + '/graph/tflite_quant_graph.tflite')
+            input_arrays = ['normalized_input_image_tensor']
+            output_arrays = ['TFLite_Detection_PostProcess', 'TFLite_Detection_PostProcess:1',
+                             'TFLite_Detection_PostProcess:2', 'TFLite_Detection_PostProcess:3']
+            input_shapes = {'normalized_input_image_tensor': [1, image_size, image_size, 3]}
+
+            converter = tf.contrib.lite.TFLiteConverter.from_frozen_graph(graph_def_file, input_arrays,
+                                                                          output_arrays, input_shapes)
+            converter.allow_custom_ops = True
+
+            if inference_type == 'QUANTIZED_UINT8':
+                # quantize and export the tflite graph
+                print('Quantizing Lite graph for QUANTIZED_UINT8 inference type...')
+
+                converter.inference_type = tf.contrib.lite.constants.QUANTIZED_UINT8
+                converter.quantized_input_stats = {'normalized_input_image_tensor': (128, 128)}
+                tflite_model = converter.convert()
+
+                open(output_tflite_graph, 'wb').write(tflite_model)
+
+            elif inference_type == 'FLOAT':
+                print('Quantizing Lite graph for FLOAT inference type...')
+
+                converter.inference_type = tf.contrib.lite.constants.FLOAT
+                converter.post_training_quantize = True
+                tflite_model = converter.convert()
+
+                open(output_tflite_graph, 'wb').write(tflite_model)
 
         copyfile(tfrecord_label_path, model_path + '/graph/label_map.pbtxt')
         copyfile(param_path, model_path + '/graph/hyperparameters.json')
