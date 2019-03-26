@@ -75,8 +75,16 @@ if __name__ == '__main__':
         else:
             quantize = False
 
+        if 'image_size' in training_params:
+            image_size = training_params['image_size']
+        else:
+            image_size = '300'
+
+        image_shape = ','.join(['1', image_size, image_size, '3'])
+
         print('Setting number of steps to {}'.format(num_steps_hyperparam))
         print('Setting quantization to {}'.format(quantize))
+        print('Setting image shape to {}'.format(image_shape))
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         print("Extracted checkpoint files: {}".format(file_list))
@@ -109,7 +117,7 @@ if __name__ == '__main__':
             # quantize and export the tflite graph
             lite_quant_export_params = ['--output_file', str(model_path + '/graph/tflite_quant_graph.tflite'),
                                         '--graph_def_file', str(model_path + '/graph/tflite_graph.pb'),
-                                        '--input_shapes', str('1,300,300,3'),
+                                        '--input_shapes', image_shape,
                                         '--input_arrays', str('normalized_input_image_tensor'),
                                         '--output_arrays', str('TFLite_Detection_PostProcess,TFLite_Detection_PostProcess:1,TFLite_Detection_PostProcess:2,TFLite_Detection_PostProcess:3'),
                                         '--inference_type', str('QUANTIZED_UINT8'),
