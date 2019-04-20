@@ -80,7 +80,7 @@ def invoke():
 
         training_params = ScoringService.get_training_params()
 
-        image_size = training_params['image_size']
+        image_size = int(training_params['image_size'])
 
         # run inference on image
         inference_result = ScoringService.predict(image_data, image_size)
