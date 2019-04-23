@@ -92,11 +92,15 @@ def invoke():
         detection_boxes = inference_result['detection_boxes']
         detection_scores = inference_result['detection_scores']
         for index, detection_class in enumerate(detection_classes):
-            detection_box = detection_boxes[index]
+            detection_box = detection_boxes[index].astype(float)
             detection_score = detection_scores[index]
 
-            prediction_object = [float(detection_class - 1), float(detection_score)]
-            prediction_object.extend(detection_box.astype(float))
+            ymin = detection_box[0]
+            xmin = detection_box[1]
+            ymax = detection_box[2]
+            xmax = detection_box[3]
+
+            prediction_object = [float(detection_class - 1), float(detection_score), xmin, ymin, xmax, ymax]
 
             prediction_objects.append(prediction_object)
 
