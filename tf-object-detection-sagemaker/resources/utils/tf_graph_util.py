@@ -57,7 +57,9 @@ class TFGraph:
 
     def _run_inference_for_single_image(self, image_numpy):
         with self.detection_graph.as_default():
-            with tf.Session() as sess:
+            config = tf.ConfigProto()
+            config.gpu_options.allow_growth = True
+            with tf.Session(config=config) as sess:
                 # Get handles to input and output tensors
                 ops = tf.get_default_graph().get_operations()
                 all_tensor_names = {output.name for op in ops for output in op.outputs}
