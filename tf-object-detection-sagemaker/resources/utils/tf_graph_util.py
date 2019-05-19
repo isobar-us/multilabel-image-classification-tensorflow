@@ -51,8 +51,12 @@ class TFGraph:
                 od_graph_def.ParseFromString(serialized_graph)
                 tf.import_graph_def(od_graph_def, name='')
 
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        config.log_device_placement = True
+
         self.category_index = label_map_util.create_category_index_from_labelmap(self.label_path, use_display_name=True)
-        self.session = tf.Session(config=tf.ConfigProto(log_device_placement=True), graph=default_graph)
+        self.session = tf.Session(config=config, graph=default_graph)
         self.global_graph = default_graph
 
     def _run_inference_for_single_image(self, image_numpy):
