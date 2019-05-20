@@ -77,7 +77,7 @@ def invoke():
     if flask.request.content_type == 'application/json':
         logging.info('Running inference on image...')
 
-        body = json.loads(flask.request.get_json())
+        body = flask.request.get_json()
         image_data = base64.b64decode(body['image'])
 
         if 'threshold' in body:
