@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import base64
 
 import flask
 
@@ -73,10 +74,16 @@ def invoke():
 
     logging.info('Invoked with content_type {}'.format(flask.request.content_type))
 
-    if flask.request.content_type == 'application/x-image':
+    if flask.request.content_type == 'application/json':
         logging.info('Running inference on image...')
 
-        image_data = flask.request.data
+        body = json.loads(flask.request.data)
+        image_data = base64.b64decode(body['image'])
+
+        if 'threshold' in body:
+            threshold = body['threshold']
+        else:
+            threshold = 0.0
 
         training_params = ScoringService.get_training_params()
 
@@ -93,14 +100,16 @@ def invoke():
         detection_scores = inference_result['detection_scores']
         for index, detection_class in enumerate(detection_classes):
             detection_box = detection_boxes[index].astype(float)
-            detection_score = detection_scores[index]
+            detection_score = float(detection_scores[index])
+            if detection_score < threshold:
+                continue
 
             ymin = detection_box[0]
             xmin = detection_box[1]
             ymax = detection_box[2]
             xmax = detection_box[3]
 
-            prediction_object = [float(detection_class - 1), float(detection_score), xmin, ymin, xmax, ymax]
+            prediction_object = [float(detection_class - 1), detection_score, xmin, ymin, xmax, ymax]
 
             prediction_objects.append(prediction_object)
 
