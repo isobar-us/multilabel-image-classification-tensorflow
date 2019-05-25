@@ -22,6 +22,7 @@ import os
 import sys
 import traceback
 from shutil import copyfile
+from tensorrt.tftrt.examples.object_detection import optimize_model
 
 
 import tensorflow as tf
@@ -106,8 +107,15 @@ if __name__ == '__main__':
                                 '--pipeline_config_path', str(tfrecord_config_path),
                                 '--trained_checkpoint_prefix', str(model_path + '/model.ckpt-' + num_steps_hyperparam),
                                 '--output_directory', str(model_path + '/graph')]
-        print('Exporting frozen graph...')
-        commandline_util.run_python_script(freezing_script, freeze_export_params)
+        print('Exporting optimized frozen graph...')
+        #commandline_util.run_python_script(freezing_script, freeze_export_params)
+        frozen_graph = optimize_model(
+            config_path=str(tfrecord_config_path),
+            checkpoint_path=str(model_path + '/model.ckpt-' + num_steps_hyperparam),
+            use_trt=True,
+            precision_mode='FP16',
+            output_path=str(model_path + '/graph/optimized_frozen_graph.pb')
+        )
 
         if quantize:
             print('Quantizing frozen graph...')
