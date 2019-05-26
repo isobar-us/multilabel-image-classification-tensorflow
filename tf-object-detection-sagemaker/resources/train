@@ -107,11 +107,13 @@ if __name__ == '__main__':
                                 '--pipeline_config_path', str(tfrecord_config_path),
                                 '--trained_checkpoint_prefix', str(model_path + '/model.ckpt-' + num_steps_hyperparam),
                                 '--output_directory', str(model_path + '/graph')]
-        print('Exporting optimized frozen graph...')
-        #commandline_util.run_python_script(freezing_script, freeze_export_params)
+        print('Exporting frozen graph...')
+        commandline_util.run_python_script(freezing_script, freeze_export_params)
+
+        print('Optimizing frozen graph...')
         frozen_graph = optimize_model(
-            config_path=str(tfrecord_config_path),
-            checkpoint_path=str(model_path + '/model.ckpt-' + num_steps_hyperparam),
+            config_path=str(model_path + '/graph/pipeline.config'),
+            checkpoint_path=str(model_path + '/graph/model.ckpt'),
             use_trt=True,
             precision_mode='FP16',
             output_path=str(model_path + '/graph/optimized_frozen_graph.pb')
