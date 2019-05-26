@@ -15,6 +15,7 @@
 """Common utility functions for evaluation."""
 import collections
 import os
+import re
 import time
 
 import numpy as np
@@ -26,6 +27,7 @@ from object_detection.core import keypoint_ops
 from object_detection.core import standard_fields as fields
 from object_detection.metrics import coco_evaluation
 from object_detection.utils import label_map_util
+from object_detection.utils import object_detection_evaluation
 from object_detection.utils import ops
 from object_detection.utils import shape_utils
 from object_detection.utils import visualization_utils as vis_utils
@@ -40,6 +42,18 @@ EVAL_METRICS_CLASS_DICT = {
         coco_evaluation.CocoDetectionEvaluator,
     'coco_mask_metrics':
         coco_evaluation.CocoMaskEvaluator,
+    'oid_challenge_detection_metrics':
+        object_detection_evaluation.OpenImagesDetectionChallengeEvaluator,
+    'pascal_voc_detection_metrics':
+        object_detection_evaluation.PascalDetectionEvaluator,
+    'weighted_pascal_voc_detection_metrics':
+        object_detection_evaluation.WeightedPascalDetectionEvaluator,
+    'pascal_voc_instance_segmentation_metrics':
+        object_detection_evaluation.PascalInstanceSegmentationEvaluator,
+    'weighted_pascal_voc_instance_segmentation_metrics':
+        object_detection_evaluation.WeightedPascalInstanceSegmentationEvaluator,
+    'oid_V2_detection_metrics':
+        object_detection_evaluation.OpenImagesDetectionEvaluator,
 }
 
 EVAL_DEFAULT_METRIC = 'coco_detection_metrics'
@@ -220,7 +234,8 @@ def _run_checkpoint_once(tensor_dict,
                          save_graph=False,
                          save_graph_dir='',
                          losses_dict=None,
-                         eval_export_path=None):
+                         eval_export_path=None,
+                         process_metrics_fn=None):
   """Evaluates metrics defined in evaluators and returns summaries.
 
   This function loads the latest checkpoint in checkpoint_dirs and evaluates
@@ -262,6 +277,12 @@ def _run_checkpoint_once(tensor_dict,
     losses_dict: optional dictionary of scalar detection losses.
     eval_export_path: Path for saving a json file that contains the detection
       results in json format.
+    process_metrics_fn: a callback called with evaluation results after each
+      evaluation is done.  It could be used e.g. to back up checkpoints with
+      best evaluation scores, or to call an external system to update evaluation
+      results in order to drive best hyper-parameter search.  Parameters are:
+      int checkpoint_number, Dict[str, ObjectDetectionEvalMetrics] metrics,
+      str checkpoint_file path.
 
   Returns:
     global_step: the count of global steps.
@@ -278,6 +299,7 @@ def _run_checkpoint_once(tensor_dict,
   sess.run(tf.global_variables_initializer())
   sess.run(tf.local_variables_initializer())
   sess.run(tf.tables_initializer())
+  checkpoint_file = None
   if restore_fn:
     restore_fn(sess)
   else:
@@ -357,6 +379,15 @@ def _run_checkpoint_once(tensor_dict,
 
       for key, value in iter(aggregate_result_losses_dict.items()):
         all_evaluator_metrics['Losses/' + key] = np.mean(value)
+      if process_metrics_fn and checkpoint_file:
+        m = re.search(r'model.ckpt-(\d+)$', checkpoint_file)
+        if not m:
+          tf.logging.error('Failed to parse checkpoint number from: %s',
+                           checkpoint_file)
+        else:
+          checkpoint_number = int(m.group(1))
+          process_metrics_fn(checkpoint_number, all_evaluator_metrics,
+                             checkpoint_file)
   sess.close()
   return (global_step, all_evaluator_metrics)
 
@@ -372,11 +403,13 @@ def repeated_checkpoint_run(tensor_dict,
                             num_batches=1,
                             eval_interval_secs=120,
                             max_number_of_evaluations=None,
+                            max_evaluation_global_step=None,
                             master='',
                             save_graph=False,
                             save_graph_dir='',
                             losses_dict=None,
-                            eval_export_path=None):
+                            eval_export_path=None,
+                            process_metrics_fn=None):
   """Periodically evaluates desired tensors using checkpoint_dirs or restore_fn.
 
   This function repeatedly loads a checkpoint and evaluates a desired
@@ -412,6 +445,7 @@ def repeated_checkpoint_run(tensor_dict,
     eval_interval_secs: the number of seconds between each evaluation run.
     max_number_of_evaluations: the max number of iterations of the evaluation.
       If the value is left as None the evaluation continues indefinitely.
+    max_evaluation_global_step: global step when evaluation stops.
     master: the location of the Tensorflow session.
     save_graph: whether or not the Tensorflow graph is saved as a pbtxt file.
     save_graph_dir: where to save on disk the Tensorflow graph. If store_graph
@@ -419,6 +453,12 @@ def repeated_checkpoint_run(tensor_dict,
     losses_dict: optional dictionary of scalar detection losses.
     eval_export_path: Path for saving a json file that contains the detection
       results in json format.
+    process_metrics_fn: a callback called with evaluation results after each
+      evaluation is done.  It could be used e.g. to back up checkpoints with
+      best evaluation scores, or to call an external system to update evaluation
+      results in order to drive best hyper-parameter search.  Parameters are:
+      int checkpoint_number, Dict[str, ObjectDetectionEvalMetrics] metrics,
+      str checkpoint_file path.
 
   Returns:
     metrics: A dictionary containing metric names and values in the latest
@@ -430,7 +470,10 @@ def repeated_checkpoint_run(tensor_dict,
   """
   if max_number_of_evaluations and max_number_of_evaluations <= 0:
     raise ValueError(
-        '`number_of_steps` must be either None or a positive number.')
+        '`max_number_of_evaluations` must be either None or a positive number.')
+  if max_evaluation_global_step and max_evaluation_global_step <= 0:
+    raise ValueError(
+        '`max_evaluation_global_step` must be either None or positive.')
 
   if not checkpoint_dirs:
     raise ValueError('`checkpoint_dirs` must have at least one entry.')
@@ -462,8 +505,13 @@ def repeated_checkpoint_run(tensor_dict,
           save_graph,
           save_graph_dir,
           losses_dict=losses_dict,
-          eval_export_path=eval_export_path)
+          eval_export_path=eval_export_path,
+          process_metrics_fn=process_metrics_fn)
       write_metrics(metrics, global_step, summary_dir)
+      if (max_evaluation_global_step and
+          global_step >= max_evaluation_global_step):
+        tf.logging.info('Finished evaluation!')
+        break
     number_of_evaluations += 1
 
     if (max_number_of_evaluations and
@@ -588,8 +636,7 @@ def result_dict_for_single_example(image,
   exclude_keys = [
       fields.InputDataFields.original_image,
       fields.DetectionResultFields.num_detections,
-      fields.InputDataFields.num_groundtruth_boxes,
-      fields.InputDataFields.original_image_spatial_shape
+      fields.InputDataFields.num_groundtruth_boxes
   ]
 
   output_dict = {
@@ -611,6 +658,7 @@ def result_dict_for_batched_example(images,
                                     class_agnostic=False,
                                     scale_to_absolute=False,
                                     original_image_spatial_shapes=None,
+                                    true_image_shapes=None,
                                     max_gt_boxes=None):
   """Merges all detection and groundtruth information for a single example.
 
@@ -646,6 +694,8 @@ def result_dict_for_batched_example(images,
       coordinates. Default False.
     original_image_spatial_shapes: A 2D int32 tensor of shape [batch_size, 2]
       used to resize the image. When set to None, the image size is retained.
+    true_image_shapes: A 2D int32 tensor of shape [batch_size, 3]
+      containing the size of the unpadded original_image.
     max_gt_boxes: [batch_size] tensor representing the maximum number of
       groundtruth boxes to pad.
 
@@ -654,6 +704,8 @@ def result_dict_for_batched_example(images,
     'original_image': A [batch_size, H, W, C] uint8 image tensor.
     'original_image_spatial_shape': A [batch_size, 2] tensor containing the
       original image sizes.
+    'true_image_shape': A [batch_size, 3] tensor containing the size of
+      the unpadded original_image.
     'key': A [batch_size] string tensor with image identifier.
     'detection_boxes': [batch_size, max_detections, 4] float32 tensor of boxes,
       in normalized or absolute coordinates, depending on the value of
@@ -681,8 +733,10 @@ def result_dict_for_batched_example(images,
       of groundtruth boxes per image.
 
   Raises:
-    ValueError: if original_image_spatial_shape is not 1D int32 tensor of shape
-    [2].
+    ValueError: if original_image_spatial_shape is not 2D int32 tensor of shape
+      [2].
+    ValueError: if true_image_shapes is not 2D int32 tensor of shape
+      [3].
   """
   label_id_offset = 1  # Applying label id offset (b/63711816)
 
@@ -698,11 +752,25 @@ def result_dict_for_batched_example(images,
           '`original_image_spatial_shape` should be a 2D tensor of shape '
           '[batch_size, 2].')
 
+  if true_image_shapes is None:
+    true_image_shapes = tf.tile(
+        tf.expand_dims(tf.shape(images)[1:4], axis=0),
+        multiples=[tf.shape(images)[0], 1])
+  else:
+    if (len(true_image_shapes.shape) != 2
+        and true_image_shapes.shape[1] != 3):
+      raise ValueError('`true_image_shapes` should be a 2D tensor of '
+                       'shape [batch_size, 3].')
+
   output_dict = {
-      input_data_fields.original_image: images,
-      input_data_fields.key: keys,
+      input_data_fields.original_image:
+          images,
+      input_data_fields.key:
+          keys,
       input_data_fields.original_image_spatial_shape: (
-          original_image_spatial_shapes)
+          original_image_spatial_shapes),
+      input_data_fields.true_image_shape:
+          true_image_shapes
   }
 
   detection_fields = fields.DetectionResultFields

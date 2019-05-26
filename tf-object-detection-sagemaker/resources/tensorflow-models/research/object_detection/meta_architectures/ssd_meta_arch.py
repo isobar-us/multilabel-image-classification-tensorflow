@@ -17,12 +17,12 @@
 General tensorflow implementation of convolutional Multibox/SSD detection
 models.
 """
-from abc import abstractmethod
-
+import abc
 import tensorflow as tf
 
 from object_detection.core import box_list
 from object_detection.core import box_list_ops
+from object_detection.core import matcher
 from object_detection.core import model
 from object_detection.core import standard_fields as fields
 from object_detection.core import target_assigner
@@ -80,7 +80,7 @@ class SSDFeatureExtractor(object):
   def is_keras_model(self):
     return False
 
-  @abstractmethod
+  @abc.abstractmethod
   def preprocess(self, resized_inputs):
     """Preprocesses images for feature extraction (minus image resizing).
 
@@ -98,7 +98,7 @@ class SSDFeatureExtractor(object):
     """
     pass
 
-  @abstractmethod
+  @abc.abstractmethod
   def extract_features(self, preprocessed_inputs):
     """Extracts features from preprocessed inputs.
 
@@ -196,7 +196,7 @@ class SSDKerasFeatureExtractor(tf.keras.Model):
   def is_keras_model(self):
     return True
 
-  @abstractmethod
+  @abc.abstractmethod
   def preprocess(self, resized_inputs):
     """Preprocesses images for feature extraction (minus image resizing).
 
@@ -214,7 +214,7 @@ class SSDKerasFeatureExtractor(tf.keras.Model):
     """
     raise NotImplementedError
 
-  @abstractmethod
+  @abc.abstractmethod
   def _extract_features(self, preprocessed_inputs):
     """Extracts features from preprocessed inputs.
 
@@ -281,8 +281,12 @@ class SSDMetaArch(model.DetectionModel):
                freeze_batchnorm=False,
                inplace_batchnorm_update=False,
                add_background_class=True,
+               explicit_background_class=False,
                random_example_sampler=None,
-               expected_classification_loss_under_sampling=None):
+               expected_loss_weights_fn=None,
+               use_confidences_as_targets=False,
+               implicit_example_weight=0.5,
+               equalization_loss_config=None):
     """SSDMetaArch Constructor.
 
     TODO(rathodv,jonathanhuang): group NMS parameters + score converter into
@@ -335,17 +339,29 @@ class SSDMetaArch(model.DetectionModel):
         dependency on tf.graphkeys.UPDATE_OPS collection in order to update
         batch norm statistics.
       add_background_class: Whether to add an implicit background class to
-        one-hot encodings of groundtruth labels. Set to false if using
-        groundtruth labels with an explicit background class or using multiclass
-        scores instead of truth in the case of distillation.
+        one-hot encodings of groundtruth labels. Set to false if training a
+        single class model or using groundtruth labels with an explicit
+        background class.
+      explicit_background_class: Set to true if using groundtruth labels with an
+        explicit background class, as in multiclass scores.
       random_example_sampler: a BalancedPositiveNegativeSampler object that can
         perform random example sampling when computing loss. If None, random
         sampling process is skipped. Note that random example sampler and hard
         example miner can both be applied to the model. In that case, random
         sampler will take effect first and hard example miner can only process
         the random sampled examples.
-      expected_classification_loss_under_sampling: If not None, use
-        to calcualte classification loss by background/foreground weighting.
+      expected_loss_weights_fn: If not None, use to calculate
+        loss by background/foreground weighting. Should take batch_cls_targets
+        as inputs and return foreground_weights, background_weights. See
+        expected_classification_loss_by_expected_sampling and
+        expected_classification_loss_by_reweighting_unmatched_anchors in
+        third_party/tensorflow_models/object_detection/utils/ops.py as examples.
+      use_confidences_as_targets: Whether to use groundtruth_condifences field
+        to assign the targets.
+      implicit_example_weight: a float number that specifies the weight used
+        for the implicit negative examples.
+      equalization_loss_config: a namedtuple that specifies configs for
+        computing equalization loss.
     """
     super(SSDMetaArch, self).__init__(num_classes=box_predictor.num_classes)
     self._is_training = is_training
@@ -358,6 +374,11 @@ class SSDMetaArch(model.DetectionModel):
     self._box_coder = box_coder
     self._feature_extractor = feature_extractor
     self._add_background_class = add_background_class
+    self._explicit_background_class = explicit_background_class
+
+    if add_background_class and explicit_background_class:
+      raise ValueError("Cannot have both 'add_background_class' and"
+                       " 'explicit_background_class' true.")
 
     # Needed for fine-tuning from classification checkpoints whose
     # variables do not have the feature extractor scope.
@@ -370,15 +391,18 @@ class SSDMetaArch(model.DetectionModel):
       # Slim feature extractors get an explicit naming scope
       self._extract_features_scope = 'FeatureExtractor'
 
-    if self._add_background_class and encode_background_as_zeros:
-      self._unmatched_class_label = tf.constant((self.num_classes + 1) * [0],
-                                                tf.float32)
-    elif self._add_background_class:
-      self._unmatched_class_label = tf.constant([1] + self.num_classes * [0],
-                                                tf.float32)
+    if encode_background_as_zeros:
+      background_class = [0]
     else:
-      self._unmatched_class_label = tf.constant(self.num_classes * [0],
-                                                tf.float32)
+      background_class = [1]
+
+    if self._add_background_class:
+      num_foreground_classes = self.num_classes
+    else:
+      num_foreground_classes = self.num_classes - 1
+
+    self._unmatched_class_label = tf.constant(
+        background_class + num_foreground_classes * [0], tf.float32)
 
     self._target_assigner = target_assigner_instance
 
@@ -399,8 +423,11 @@ class SSDMetaArch(model.DetectionModel):
     self._anchors = None
     self._add_summaries = add_summaries
     self._batched_prediction_tensor_names = []
-    self._expected_classification_loss_under_sampling = (
-        expected_classification_loss_under_sampling)
+    self._expected_loss_weights_fn = expected_loss_weights_fn
+    self._use_confidences_as_targets = use_confidences_as_targets
+    self._implicit_example_weight = implicit_example_weight
+
+    self._equalization_loss_config = equalization_loss_config
 
   @property
   def anchors(self):
@@ -525,8 +552,10 @@ class SSDMetaArch(model.DetectionModel):
         5) anchors: 2-D float tensor of shape [num_anchors, 4] containing
           the generated anchors in normalized coordinates.
     """
-    batchnorm_updates_collections = (None if self._inplace_batchnorm_update
-                                     else tf.GraphKeys.UPDATE_OPS)
+    if self._inplace_batchnorm_update:
+      batchnorm_updates_collections = None
+    else:
+      batchnorm_updates_collections = tf.GraphKeys.UPDATE_OPS
     if self._feature_extractor.is_keras_model:
       feature_maps = self._feature_extractor(preprocessed_inputs)
     else:
@@ -621,14 +650,22 @@ class SSDMetaArch(model.DetectionModel):
 
     Returns:
       detections: a dictionary containing the following fields
-        detection_boxes: [batch, max_detections, 4]
-        detection_scores: [batch, max_detections]
-        detection_classes: [batch, max_detections]
+        detection_boxes: [batch, max_detections, 4] tensor with post-processed
+          detection boxes.
+        detection_scores: [batch, max_detections] tensor with scalar scores for
+          post-processed detection boxes.
+        detection_classes: [batch, max_detections] tensor with classes for
+          post-processed detection classes.
         detection_keypoints: [batch, max_detections, num_keypoints, 2] (if
           encoded in the prediction_dict 'box_encodings')
         detection_masks: [batch_size, max_detections, mask_height, mask_width]
           (optional)
         num_detections: [batch]
+        raw_detection_boxes: [batch, total_detections, 4] tensor with decoded
+          detection boxes before Non-Max Suppression.
+        raw_detection_score: [batch, total_detections,
+          num_classes_with_background] tensor of multi-class scores for raw
+          detection boxes.
     Raises:
       ValueError: if prediction_dict does not contain `box_encodings` or
         `class_predictions_with_background` fields.
@@ -636,18 +673,24 @@ class SSDMetaArch(model.DetectionModel):
     if ('box_encodings' not in prediction_dict or
         'class_predictions_with_background' not in prediction_dict):
       raise ValueError('prediction_dict does not contain expected entries.')
+    if 'anchors' not in prediction_dict:
+      prediction_dict['anchors'] = self.anchors.get()
     with tf.name_scope('Postprocessor'):
       preprocessed_images = prediction_dict['preprocessed_inputs']
       box_encodings = prediction_dict['box_encodings']
       box_encodings = tf.identity(box_encodings, 'raw_box_encodings')
-      class_predictions = prediction_dict['class_predictions_with_background']
-      detection_boxes, detection_keypoints = self._batch_decode(box_encodings)
+      class_predictions_with_background = (
+          prediction_dict['class_predictions_with_background'])
+      detection_boxes, detection_keypoints = self._batch_decode(
+          box_encodings, prediction_dict['anchors'])
       detection_boxes = tf.identity(detection_boxes, 'raw_box_locations')
       detection_boxes = tf.expand_dims(detection_boxes, axis=2)
 
-      detection_scores = self._score_conversion_fn(class_predictions)
-      detection_scores = tf.identity(detection_scores, 'raw_box_scores')
-      if self._add_background_class:
+      detection_scores_with_background = self._score_conversion_fn(
+          class_predictions_with_background)
+      detection_scores = tf.identity(detection_scores_with_background,
+                                     'raw_box_scores')
+      if self._add_background_class or self._explicit_background_class:
         detection_scores = tf.slice(detection_scores, [0, 0, 1], [-1, -1, -1])
       additional_fields = None
 
@@ -673,11 +716,18 @@ class SSDMetaArch(model.DetectionModel):
            additional_fields=additional_fields,
            masks=prediction_dict.get('mask_predictions'))
       detection_dict = {
-          fields.DetectionResultFields.detection_boxes: nmsed_boxes,
-          fields.DetectionResultFields.detection_scores: nmsed_scores,
-          fields.DetectionResultFields.detection_classes: nmsed_classes,
+          fields.DetectionResultFields.detection_boxes:
+              nmsed_boxes,
+          fields.DetectionResultFields.detection_scores:
+              nmsed_scores,
+          fields.DetectionResultFields.detection_classes:
+              nmsed_classes,
           fields.DetectionResultFields.num_detections:
-              tf.to_float(num_detections)
+              tf.to_float(num_detections),
+          fields.DetectionResultFields.raw_detection_boxes:
+              tf.squeeze(detection_boxes, axis=2),
+          fields.DetectionResultFields.raw_detection_scores:
+              detection_scores_with_background
       }
       if (nmsed_additional_fields is not None and
           fields.BoxListFields.keypoints in nmsed_additional_fields):
@@ -720,11 +770,15 @@ class SSDMetaArch(model.DetectionModel):
       weights = None
       if self.groundtruth_has_field(fields.BoxListFields.weights):
         weights = self.groundtruth_lists(fields.BoxListFields.weights)
+      confidences = None
+      if self.groundtruth_has_field(fields.BoxListFields.confidences):
+        confidences = self.groundtruth_lists(fields.BoxListFields.confidences)
       (batch_cls_targets, batch_cls_weights, batch_reg_targets,
-       batch_reg_weights, match_list) = self._assign_targets(
+       batch_reg_weights, batch_match) = self._assign_targets(
            self.groundtruth_lists(fields.BoxListFields.boxes),
            self.groundtruth_lists(fields.BoxListFields.classes),
-           keypoints, weights)
+           keypoints, weights, confidences)
+      match_list = [matcher.Match(match) for match in tf.unstack(batch_match)]
       if self._add_summaries:
         self._summarize_target_assignment(
             self.groundtruth_lists(fields.BoxListFields.boxes), match_list)
@@ -762,7 +816,7 @@ class SSDMetaArch(model.DetectionModel):
           weights=batch_cls_weights,
           losses_mask=losses_mask)
 
-      if self._expected_classification_loss_under_sampling:
+      if self._expected_loss_weights_fn:
         # Need to compute losses for assigned targets against the
         # unmatched_class_label as well as their assigned targets.
         # simplest thing (but wasteful) is just to calculate all losses
@@ -787,8 +841,16 @@ class SSDMetaArch(model.DetectionModel):
           batch_cls_targets = tf.concat(
               [1 - batch_cls_targets, batch_cls_targets], axis=-1)
 
-        cls_losses = self._expected_classification_loss_under_sampling(
-            batch_cls_targets, cls_losses, unmatched_cls_losses)
+          location_losses = tf.tile(location_losses, [1, num_classes])
+
+        foreground_weights, background_weights = (
+            self._expected_loss_weights_fn(batch_cls_targets))
+
+        cls_losses = (
+            foreground_weights * cls_losses +
+            background_weights * unmatched_cls_losses)
+
+        location_losses *= foreground_weights
 
         classification_loss = tf.reduce_sum(cls_losses)
         localization_loss = tf.reduce_sum(location_losses)
@@ -824,6 +886,8 @@ class SSDMetaArch(model.DetectionModel):
           str(localization_loss.op.name): localization_loss,
           str(classification_loss.op.name): classification_loss
       }
+
+
     return loss_dict
 
   def _minibatch_subsample_fn(self, inputs):
@@ -864,9 +928,12 @@ class SSDMetaArch(model.DetectionModel):
     visualization_utils.add_cdf_image_summary(negative_anchor_cls_loss,
                                               'NegativeAnchorLossCDF')
 
-  def _assign_targets(self, groundtruth_boxes_list, groundtruth_classes_list,
+  def _assign_targets(self,
+                      groundtruth_boxes_list,
+                      groundtruth_classes_list,
                       groundtruth_keypoints_list=None,
-                      groundtruth_weights_list=None):
+                      groundtruth_weights_list=None,
+                      groundtruth_confidences_list=None):
     """Assign groundtruth targets.
 
     Adds a background class to each one-hot encoding of groundtruth classes
@@ -885,6 +952,9 @@ class SSDMetaArch(model.DetectionModel):
         [num_boxes, num_keypoints, 2]
       groundtruth_weights_list: A list of 1-D tf.float32 tensors of shape
         [num_boxes] containing weights for groundtruth boxes.
+      groundtruth_confidences_list: A list of 2-D tf.float32 tensors of shape
+        [num_boxes, num_classes] containing class confidences for
+        groundtruth boxes.
 
     Returns:
       batch_cls_targets: a tensor with shape [batch_size, num_anchors,
@@ -901,11 +971,18 @@ class SSDMetaArch(model.DetectionModel):
     groundtruth_boxlists = [
         box_list.BoxList(boxes) for boxes in groundtruth_boxes_list
     ]
+    train_using_confidences = (self._is_training and
+                               self._use_confidences_as_targets)
     if self._add_background_class:
       groundtruth_classes_with_background_list = [
           tf.pad(one_hot_encoding, [[0, 0], [1, 0]], mode='CONSTANT')
           for one_hot_encoding in groundtruth_classes_list
       ]
+      if train_using_confidences:
+        groundtruth_confidences_with_background_list = [
+            tf.pad(groundtruth_confidences, [[0, 0], [1, 0]], mode='CONSTANT')
+            for groundtruth_confidences in groundtruth_confidences_list
+        ]
     else:
       groundtruth_classes_with_background_list = groundtruth_classes_list
 
@@ -913,10 +990,24 @@ class SSDMetaArch(model.DetectionModel):
       for boxlist, keypoints in zip(
           groundtruth_boxlists, groundtruth_keypoints_list):
         boxlist.add_field(fields.BoxListFields.keypoints, keypoints)
-    return target_assigner.batch_assign_targets(
-        self._target_assigner, self.anchors, groundtruth_boxlists,
-        groundtruth_classes_with_background_list, self._unmatched_class_label,
-        groundtruth_weights_list)
+    if train_using_confidences:
+      return target_assigner.batch_assign_confidences(
+          self._target_assigner,
+          self.anchors,
+          groundtruth_boxlists,
+          groundtruth_confidences_with_background_list,
+          groundtruth_weights_list,
+          self._unmatched_class_label,
+          self._add_background_class,
+          self._implicit_example_weight)
+    else:
+      return target_assigner.batch_assign_targets(
+          self._target_assigner,
+          self.anchors,
+          groundtruth_boxlists,
+          groundtruth_classes_with_background_list,
+          self._unmatched_class_label,
+          groundtruth_weights_list)
 
   def _summarize_target_assignment(self, groundtruth_boxes_list, match_list):
     """Creates tensorflow summaries for the input boxes and anchors.
@@ -934,25 +1025,31 @@ class SSDMetaArch(model.DetectionModel):
         with rows of the Match objects corresponding to groundtruth boxes
         and columns corresponding to anchors.
     """
-    num_boxes_per_image = tf.stack(
-        [tf.shape(x)[0] for x in groundtruth_boxes_list])
-    pos_anchors_per_image = tf.stack(
-        [match.num_matched_columns() for match in match_list])
-    neg_anchors_per_image = tf.stack(
-        [match.num_unmatched_columns() for match in match_list])
-    ignored_anchors_per_image = tf.stack(
-        [match.num_ignored_columns() for match in match_list])
+    avg_num_gt_boxes = tf.reduce_mean(tf.to_float(tf.stack(
+        [tf.shape(x)[0] for x in groundtruth_boxes_list])))
+    avg_num_matched_gt_boxes = tf.reduce_mean(tf.to_float(tf.stack(
+        [match.num_matched_rows() for match in match_list])))
+    avg_pos_anchors = tf.reduce_mean(tf.to_float(tf.stack(
+        [match.num_matched_columns() for match in match_list])))
+    avg_neg_anchors = tf.reduce_mean(tf.to_float(tf.stack(
+        [match.num_unmatched_columns() for match in match_list])))
+    avg_ignored_anchors = tf.reduce_mean(tf.to_float(tf.stack(
+        [match.num_ignored_columns() for match in match_list])))
+    # TODO(rathodv): Add a test for these summaries.
     tf.summary.scalar('AvgNumGroundtruthBoxesPerImage',
-                      tf.reduce_mean(tf.to_float(num_boxes_per_image)),
+                      avg_num_gt_boxes,
+                      family='TargetAssignment')
+    tf.summary.scalar('AvgNumGroundtruthBoxesMatchedPerImage',
+                      avg_num_matched_gt_boxes,
                       family='TargetAssignment')
     tf.summary.scalar('AvgNumPositiveAnchorsPerImage',
-                      tf.reduce_mean(tf.to_float(pos_anchors_per_image)),
+                      avg_pos_anchors,
                       family='TargetAssignment')
     tf.summary.scalar('AvgNumNegativeAnchorsPerImage',
-                      tf.reduce_mean(tf.to_float(neg_anchors_per_image)),
+                      avg_neg_anchors,
                       family='TargetAssignment')
     tf.summary.scalar('AvgNumIgnoredAnchorsPerImage',
-                      tf.reduce_mean(tf.to_float(ignored_anchors_per_image)),
+                      avg_ignored_anchors,
                       family='TargetAssignment')
 
   def _apply_hard_mining(self, location_losses, cls_losses, prediction_dict,
@@ -971,6 +1068,7 @@ class SSDMetaArch(model.DetectionModel):
           [batch_size, num_anchors, num_classes+1] containing class predictions
           (logits) for each of the anchors.  Note that this tensor *includes*
           background class predictions.
+        3) anchors: (optional) 2-D float tensor of shape [num_anchors, 4].
       match_list: a list of matcher.Match objects encoding the match between
         anchors and groundtruth boxes for each image of the batch,
         with rows of the Match objects corresponding to groundtruth boxes
@@ -982,11 +1080,14 @@ class SSDMetaArch(model.DetectionModel):
       mined_cls_loss: a float scalar with sum of classification losses from
         selected hard examples.
     """
-    class_predictions = tf.slice(
-        prediction_dict['class_predictions_with_background'], [0, 0,
-                                                               1], [-1, -1, -1])
+    class_predictions = prediction_dict['class_predictions_with_background']
+    if self._add_background_class:
+      class_predictions = tf.slice(class_predictions, [0, 0, 1], [-1, -1, -1])
 
-    decoded_boxes, _ = self._batch_decode(prediction_dict['box_encodings'])
+    if 'anchors' not in prediction_dict:
+      prediction_dict['anchors'] = self.anchors.get()
+    decoded_boxes, _ = self._batch_decode(prediction_dict['box_encodings'],
+                                          prediction_dict['anchors'])
     decoded_box_tensors_list = tf.unstack(decoded_boxes)
     class_prediction_list = tf.unstack(class_predictions)
     decoded_boxlist_list = []
@@ -1001,12 +1102,13 @@ class SSDMetaArch(model.DetectionModel):
         decoded_boxlist_list=decoded_boxlist_list,
         match_list=match_list)
 
-  def _batch_decode(self, box_encodings):
+  def _batch_decode(self, box_encodings, anchors):
     """Decodes a batch of box encodings with respect to the anchors.
 
     Args:
       box_encodings: A float32 tensor of shape
         [batch_size, num_anchors, box_code_size] containing box encodings.
+      anchors: A tensor of shape [num_anchors, 4].
 
     Returns:
       decoded_boxes: A float32 tensor of shape
@@ -1018,8 +1120,7 @@ class SSDMetaArch(model.DetectionModel):
     combined_shape = shape_utils.combined_static_and_dynamic_shape(
         box_encodings)
     batch_size = combined_shape[0]
-    tiled_anchor_boxes = tf.tile(
-        tf.expand_dims(self.anchors.get(), 0), [batch_size, 1, 1])
+    tiled_anchor_boxes = tf.tile(tf.expand_dims(anchors, 0), [batch_size, 1, 1])
     tiled_anchors_boxlist = box_list.BoxList(
         tf.reshape(tiled_anchor_boxes, [-1, 4]))
     decoded_boxes = self._box_coder.decode(

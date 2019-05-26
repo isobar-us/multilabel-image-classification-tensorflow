@@ -26,7 +26,10 @@ from __future__ import print_function
 import os
 import sys
 
-import tensorflow as tf  # pylint: disable=g-bad-import-order
+# pylint: disable=g-bad-import-order
+from absl import app as absl_app  # pylint: disable=unused-import
+import tensorflow as tf
+# pylint: enable=g-bad-import-order
 
 # For open source environment, add grandparent directory for import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.path[0]))))
@@ -127,19 +130,15 @@ def train_input_fn(params):
   # computed according to the input pipeline deployment. See
   # `tf.contrib.tpu.RunConfig` for details.
   ds = dataset.train(data_dir).cache().repeat().shuffle(
-      buffer_size=50000).apply(
-          tf.contrib.data.batch_and_drop_remainder(batch_size))
-  images, labels = ds.make_one_shot_iterator().get_next()
-  return images, labels
+      buffer_size=50000).batch(batch_size, drop_remainder=True)
+  return ds
 
 
 def eval_input_fn(params):
   batch_size = params["batch_size"]
   data_dir = params["data_dir"]
-  ds = dataset.test(data_dir).apply(
-      tf.contrib.data.batch_and_drop_remainder(batch_size))
-  images, labels = ds.make_one_shot_iterator().get_next()
-  return images, labels
+  ds = dataset.test(data_dir).batch(batch_size, drop_remainder=True)
+  return ds
 
 
 def predict_input_fn(params):
@@ -199,4 +198,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  absl_app.run()

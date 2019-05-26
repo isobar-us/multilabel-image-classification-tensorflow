@@ -73,6 +73,10 @@ def get_spatial_image_size(image_resizer_config):
       return [image_resizer_config.keep_aspect_ratio_resizer.max_dimension] * 2
     else:
       return [-1, -1]
+  if image_resizer_config.HasField(
+      "identity_resizer") or image_resizer_config.HasField(
+          "conditional_shape_resizer"):
+    return [-1, -1]
   raise ValueError("Unknown image resizer type.")
 
 
@@ -328,12 +332,6 @@ def _check_and_convert_legacy_input_config_key(key):
   elif field_name == "eval_shuffle":
     key_name = "eval_input_configs"
     field_name = "shuffle"
-  elif field_name == "train_input_path":
-    key_name = "train_input_config"
-    field_name = "input_path"
-  elif field_name == "eval_input_path":
-    key_name = "eval_input_configs"
-    field_name = "input_path"
   elif field_name == "train_input_path":
     key_name = "train_input_config"
     field_name = "input_path"
@@ -858,11 +856,6 @@ def _update_focal_loss_alpha(configs, alpha):
 def _update_train_steps(configs, train_steps):
   """Updates `configs` to reflect new number of training steps."""
   configs["train_config"].num_steps = int(train_steps)
-
-
-def _update_eval_steps(configs, eval_steps):
-  """Updates `configs` to reflect new number of eval steps per evaluation."""
-  configs["eval_config"].num_examples = int(eval_steps)
 
 
 def _update_all_eval_input_configs(configs, field, value):
