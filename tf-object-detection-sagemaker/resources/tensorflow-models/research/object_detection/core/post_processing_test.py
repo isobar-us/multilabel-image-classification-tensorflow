@@ -57,53 +57,7 @@ class MulticlassNonMaxSuppressionTest(test_case.TestCase):
       self.assertAllClose(nms_scores_output, exp_nms_scores)
       self.assertAllClose(nms_classes_output, exp_nms_classes)
 
-  def test_multiclass_nms_select_with_shared_boxes_pad_to_max_output_size(self):
-    boxes = np.array([[[0, 0, 1, 1]],
-                      [[0, 0.1, 1, 1.1]],
-                      [[0, -0.1, 1, 0.9]],
-                      [[0, 10, 1, 11]],
-                      [[0, 10.1, 1, 11.1]],
-                      [[0, 100, 1, 101]],
-                      [[0, 1000, 1, 1002]],
-                      [[0, 1000, 1, 1002.1]]], np.float32)
-    scores = np.array([[.9, 0.01], [.75, 0.05],
-                       [.6, 0.01], [.95, 0],
-                       [.5, 0.01], [.3, 0.01],
-                       [.01, .85], [.01, .5]], np.float32)
-    score_thresh = 0.1
-    iou_thresh = .5
-    max_size_per_class = 4
-    max_output_size = 5
-
-    exp_nms_corners = [[0, 10, 1, 11],
-                       [0, 0, 1, 1],
-                       [0, 1000, 1, 1002],
-                       [0, 100, 1, 101]]
-    exp_nms_scores = [.95, .9, .85, .3]
-    exp_nms_classes = [0, 0, 1, 0]
-
-    def graph_fn(boxes, scores):
-      nms, num_valid_nms_boxes = post_processing.multiclass_non_max_suppression(
-          boxes,
-          scores,
-          score_thresh,
-          iou_thresh,
-          max_size_per_class,
-          max_total_size=max_output_size,
-          pad_to_max_output_size=True)
-      return [nms.get(), nms.get_field(fields.BoxListFields.scores),
-              nms.get_field(fields.BoxListFields.classes), num_valid_nms_boxes]
-
-    [nms_corners_output, nms_scores_output, nms_classes_output,
-     num_valid_nms_boxes] = self.execute(graph_fn, [boxes, scores])
-
-    self.assertEqual(num_valid_nms_boxes, 4)
-    self.assertAllClose(nms_corners_output[0:num_valid_nms_boxes],
-                        exp_nms_corners)
-    self.assertAllClose(nms_scores_output[0:num_valid_nms_boxes],
-                        exp_nms_scores)
-    self.assertAllClose(nms_classes_output[0:num_valid_nms_boxes],
-                        exp_nms_classes)
+  # TODO(bhattad): Remove conditional after CMLE moves to TF 1.9
 
   def test_multiclass_nms_select_with_shared_boxes_given_keypoints(self):
     boxes = tf.constant([[[0, 0, 1, 1]],
@@ -839,9 +793,6 @@ class MulticlassNonMaxSuppressionTest(test_case.TestCase):
               [[0, 0], [0, 0]]]],
             tf.float32)
     }
-    additional_fields['size'] = tf.constant(
-        [[[[6], [8]], [[0], [2]], [[0], [0]], [[0], [0]]],
-         [[[13], [15]], [[8], [10]], [[10], [12]], [[0], [0]]]], tf.float32)
     score_thresh = 0.1
     iou_thresh = .5
     max_output_size = 4
@@ -868,10 +819,6 @@ class MulticlassNonMaxSuppressionTest(test_case.TestCase):
                                 [[8, 9], [10, 11]],
                                 [[0, 0], [0, 0]]]])
     }
-    exp_nms_additional_fields['size'] = np.array([[[[0], [0]], [[6], [8]],
-                                                   [[0], [0]], [[0], [0]]],
-                                                  [[[10], [12]], [[13], [15]],
-                                                   [[8], [10]], [[0], [0]]]])
 
     (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
      nmsed_additional_fields, num_detections
@@ -1078,11 +1025,6 @@ class MulticlassNonMaxSuppressionTest(test_case.TestCase):
               [[0, 0], [0, 0]]]],
             tf.float32)
     }
-
-    additional_fields['size'] = tf.constant(
-        [[[[7], [9]], [[1], [3]], [[0], [0]], [[0], [0]]],
-         [[[14], [16]], [[9], [11]], [[11], [13]], [[0], [0]]]], tf.float32)
-
     num_valid_boxes = tf.constant([1, 1], tf.int32)
     score_thresh = 0.1
     iou_thresh = .5
@@ -1111,11 +1053,6 @@ class MulticlassNonMaxSuppressionTest(test_case.TestCase):
                                 [[0, 0], [0, 0]]]])
     }
 
-    exp_nms_additional_fields['size'] = np.array([[[[7], [9]], [[0], [0]],
-                                                   [[0], [0]], [[0], [0]]],
-                                                  [[[14], [16]], [[0], [0]],
-                                                   [[0], [0]], [[0], [0]]]])
-
     (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
      nmsed_additional_fields, num_detections
     ) = post_processing.batch_multiclass_non_max_suppression(
@@ -1140,6 +1077,53 @@ class MulticlassNonMaxSuppressionTest(test_case.TestCase):
       self.assertAllClose(num_detections, [1, 1])
 
   # TODO(bhattad): Remove conditional after CMLE moves to TF 1.9
+  def test_combined_nms_with_batch_size_2(self):
+    boxes = tf.constant([[[[0, 0, 0.1, 0.1], [0, 0, 0.1, 0.1]],
+                          [[0, 0.01, 1, 0.11], [0, 0.6, 0.1, 0.7]],
+                          [[0, -0.01, 0.1, 0.09], [0, -0.1, 0.1, 0.09]],
+                          [[0, 0.11, 0.1, 0.2], [0, 0.11, 0.1, 0.2]]],
+                         [[[0, 0, 0.2, 0.2], [0, 0, 0.2, 0.2]],
+                          [[0, 0.02, 0.2, 0.22], [0, 0.02, 0.2, 0.22]],
+                          [[0, -0.02, 0.2, 0.19], [0, -0.02, 0.2, 0.19]],
+                          [[0, 0.21, 0.2, 0.3], [0, 0.21, 0.2, 0.3]]]],
+                        tf.float32)
+    scores = tf.constant([[[.1, 0.9], [.75, 0.8],
+                           [.6, 0.3], [0.95, 0.1]],
+                          [[.1, 0.9], [.75, 0.8],
+                           [.6, .3], [.95, .1]]])
+    score_thresh = 0.1
+    iou_thresh = .5
+    max_output_size = 3
+
+    exp_nms_corners = np.array([[[0, 0.11, 0.1, 0.2],
+                                 [0, 0, 0.1, 0.1],
+                                 [0, 0.6, 0.1, 0.7]],
+                                [[0, 0.21, 0.2, 0.3],
+                                 [0, 0, 0.2, 0.2],
+                                 [0, 0.02, 0.2, 0.22]]])
+    exp_nms_scores = np.array([[.95, .9, 0.8],
+                               [.95, .9, .75]])
+    exp_nms_classes = np.array([[0, 1, 1],
+                                [0, 1, 0]])
+
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+     nmsed_additional_fields, num_detections
+    ) = post_processing.combined_non_max_suppression(
+        boxes, scores, score_thresh, iou_thresh,
+        max_size_per_class=max_output_size, max_total_size=max_output_size,
+        use_static_shapes=True)
+
+    self.assertIsNone(nmsed_masks)
+    self.assertIsNone(nmsed_additional_fields)
+
+    with self.test_session() as sess:
+      (nmsed_boxes, nmsed_scores, nmsed_classes,
+       num_detections) = sess.run([nmsed_boxes, nmsed_scores, nmsed_classes,
+                                   num_detections])
+      self.assertAllClose(nmsed_boxes, exp_nms_corners)
+      self.assertAllClose(nmsed_scores, exp_nms_scores)
+      self.assertAllClose(nmsed_classes, exp_nms_classes)
+      self.assertAllClose(num_detections, [3, 3])
 
 if __name__ == '__main__':
   tf.test.main()

@@ -20,6 +20,7 @@ import numpy as np
 import tensorflow as tf
 
 from google.protobuf import text_format
+from google3.testing.pybase import parameterized
 from tensorflow.core.example import example_pb2
 from tensorflow.core.example import feature_pb2
 from lstm_object_detection.inputs import seq_dataset_builder
@@ -31,7 +32,7 @@ from object_detection.protos import pipeline_pb2
 from object_detection.protos import preprocessor_pb2
 
 
-class DatasetBuilderTest(tf.test.TestCase):
+class DatasetBuilderTest(parameterized.TestCase):
 
   def _create_tf_record(self):
     path = os.path.join(self.get_temp_dir(), 'tfrecord')
@@ -103,7 +104,7 @@ class DatasetBuilderTest(tf.test.TestCase):
     """
 
     model_text_proto = """
-    [lstm_object_detection.protos.lstm_model] {
+    [object_detection.protos.lstm_model] {
       train_unroll_length: 4
       eval_unroll_length: 4
     }
@@ -210,7 +211,7 @@ class DatasetBuilderTest(tf.test.TestCase):
   def _get_input_proto(self, input_reader):
     return """
         external_input_reader {
-          [lstm_object_detection.protos.GoogleInputReader.google_input_reader] {
+          [lstm_object_detection.input_readers.GoogleInputReader.google_input_reader] {
             %s: {
               input_path: '{0}'
               data_type: TF_SEQUENCE_EXAMPLE
@@ -220,11 +221,11 @@ class DatasetBuilderTest(tf.test.TestCase):
         }
       """ % input_reader
 
-  def test_video_input_reader(self):
+  @parameterized.named_parameters(('tf_record', 'tf_record_video_input_reader'))
+  def test_video_input_reader(self, video_input_type):
     input_reader_proto = input_reader_pb2.InputReader()
     text_format.Merge(
-        self._get_input_proto('tf_record_video_input_reader'),
-        input_reader_proto)
+        self._get_input_proto(video_input_type), input_reader_proto)
 
     configs = self._get_model_configs_from_proto()
     tensor_dict = seq_dataset_builder.build(

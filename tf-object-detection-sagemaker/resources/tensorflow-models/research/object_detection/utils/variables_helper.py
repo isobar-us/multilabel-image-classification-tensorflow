@@ -20,8 +20,6 @@ import re
 
 import tensorflow as tf
 
-from tensorflow.python.ops import variables as tf_variables
-
 slim = tf.contrib.slim
 
 
@@ -120,13 +118,7 @@ def get_variables_available_in_checkpoint(variables,
     ValueError: if `variables` is not a list or dict.
   """
   if isinstance(variables, list):
-    variable_names_map = {}
-    for variable in variables:
-      if isinstance(variable, tf_variables.PartitionedVariable):
-        name = variable.name
-      else:
-        name = variable.op.name
-      variable_names_map[name] = variable
+    variable_names_map = {variable.op.name: variable for variable in variables}
   elif isinstance(variables, dict):
     variable_names_map = variables
   else:

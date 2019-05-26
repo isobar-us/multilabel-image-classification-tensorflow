@@ -53,7 +53,6 @@ def learning_rate_schedule(current_epoch,
   Returns:
     Adjusted learning rate.
   """
-  del current_batch, batches_per_epoch  # not used
   initial_learning_rate = keras_common.BASE_LEARNING_RATE * batch_size / 128
   learning_rate = initial_learning_rate
   for mult, start_epoch in LR_SCHEDULE:
@@ -82,7 +81,7 @@ def parse_record_keras(raw_record, is_training, dtype):
     Tuple with processed image tensor and one-hot-encoded label tensor.
   """
   image, label = cifar_main.parse_record(raw_record, is_training, dtype)
-  label = tf.compat.v1.sparse_to_dense(label, (cifar_main.NUM_CLASSES,), 1)
+  label = tf.sparse_to_dense(label, (cifar_main.NUM_CLASSES,), 1)
   return image, label
 
 
@@ -98,17 +97,8 @@ def run(flags_obj):
   Returns:
     Dictionary of training and eval stats.
   """
-  # TODO(tobyboyd): Remove eager flag when tf 1.0 testing ends.
-  # Eager is default in tf 2.0 and should not be toggled
-  if keras_common.is_v2_0():
-    keras_common.set_config_v2()
-  else:
-    config = keras_common.get_config_proto_v1()
-    if flags_obj.enable_eager:
-      tf.compat.v1.enable_eager_execution(config=config)
-    else:
-      sess = tf.Session(config=config)
-      tf.keras.backend.set_session(sess)
+  if flags_obj.enable_eager:
+    tf.enable_eager_execution()
 
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':
@@ -121,14 +111,7 @@ def run(flags_obj):
                    if tf.test.is_built_with_cuda() else 'channels_last')
   tf.keras.backend.set_image_data_format(data_format)
 
-  strategy = distribution_utils.get_distribution_strategy(
-      distribution_strategy=flags_obj.distribution_strategy,
-      num_gpus=flags_obj.num_gpus)
-
-  strategy_scope = distribution_utils.get_strategy_scope(strategy)
-
   if flags_obj.use_synthetic_data:
-    distribution_utils.set_up_synthetic_data()
     input_fn = keras_common.get_synth_input_fn(
         height=cifar_main.HEIGHT,
         width=cifar_main.WIDTH,
@@ -136,7 +119,6 @@ def run(flags_obj):
         num_classes=cifar_main.NUM_CLASSES,
         dtype=flags_core.get_tf_dtype(flags_obj))
   else:
-    distribution_utils.undo_set_up_synthetic_data()
     input_fn = cifar_main.input_fn
 
   train_input_dataset = input_fn(
@@ -153,6 +135,12 @@ def run(flags_obj):
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=parse_record_keras)
 
+  strategy = distribution_utils.get_distribution_strategy(
+      num_gpus=flags_obj.num_gpus,
+      turn_off_distribution_strategy=flags_obj.turn_off_distribution_strategy)
+
+  strategy_scope = keras_common.get_strategy_scope(strategy)
+
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
@@ -161,7 +149,7 @@ def run(flags_obj):
                   optimizer=optimizer,
                   metrics=['categorical_accuracy'])
 
-  callbacks = keras_common.get_callbacks(
+  time_callback, tensorboard_callback, lr_callback = keras_common.get_callbacks(
       learning_rate_schedule, cifar_main.NUM_IMAGES['train'])
 
   train_steps = cifar_main.NUM_IMAGES['train'] // flags_obj.batch_size
@@ -183,17 +171,20 @@ def run(flags_obj):
   history = model.fit(train_input_dataset,
                       epochs=train_epochs,
                       steps_per_epoch=train_steps,
-                      callbacks=callbacks,
+                      callbacks=[
+                          time_callback,
+                          lr_callback,
+                          tensorboard_callback
+                      ],
                       validation_steps=num_eval_steps,
                       validation_data=validation_data,
-                      validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
+                      verbose=1)
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_dataset,
                                  steps=num_eval_steps,
-                                 verbose=2)
-  stats = keras_common.build_stats(history, eval_output, callbacks)
+                                 verbose=1)
+  stats = keras_common.build_stats(history, eval_output, time_callback)
   return stats
 
 
@@ -203,7 +194,7 @@ def main(_):
 
 
 if __name__ == '__main__':
-  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.logging.set_verbosity(tf.logging.INFO)
   cifar_main.define_cifar_flags()
   keras_common.define_keras_flags()
   absl_app.run(main)

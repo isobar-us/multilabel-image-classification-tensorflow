@@ -52,7 +52,8 @@ python deeplab/train.py \
     --atrous_rates=18 \
     --output_stride=16 \
     --decoder_output_stride=4 \
-    --train_crop_size="513,513" \
+    --train_crop_size=513 \
+    --train_crop_size=513 \
     --train_batch_size=1 \
     --dataset="pascal_voc_seg" \
     --tf_initial_checkpoint=${PATH_TO_INITIAL_CHECKPOINT} \
@@ -95,7 +96,8 @@ python deeplab/eval.py \
     --atrous_rates=18 \
     --output_stride=16 \
     --decoder_output_stride=4 \
-    --eval_crop_size="513,513" \
+    --eval_crop_size=513 \
+    --eval_crop_size=513 \
     --dataset="pascal_voc_seg" \
     --checkpoint_dir=${PATH_TO_CHECKPOINT} \
     --eval_logdir=${PATH_TO_EVAL_DIR} \
@@ -121,7 +123,8 @@ python deeplab/vis.py \
     --atrous_rates=18 \
     --output_stride=16 \
     --decoder_output_stride=4 \
-    --vis_crop_size="513,513" \
+    --vis_crop_size=513 \
+    --vis_crop_size=513 \
     --dataset="pascal_voc_seg" \
     --checkpoint_dir=${PATH_TO_CHECKPOINT} \
     --vis_logdir=${PATH_TO_VIS_DIR} \

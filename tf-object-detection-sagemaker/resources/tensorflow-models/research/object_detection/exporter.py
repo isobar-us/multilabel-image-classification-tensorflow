@@ -19,7 +19,11 @@ import tempfile
 import tensorflow as tf
 from tensorflow.contrib.quantize.python import graph_matcher
 from tensorflow.core.protobuf import saver_pb2
-from tensorflow.python.tools import freeze_graph  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.client import session
+from tensorflow.python.platform import gfile
+from tensorflow.python.saved_model import signature_constants
+from tensorflow.python.tools import freeze_graph
+from tensorflow.python.training import saver as saver_lib
 from object_detection.builders import graph_rewriter_builder
 from object_detection.builders import model_builder
 from object_detection.core import standard_fields as fields
@@ -69,8 +73,7 @@ def rewrite_nn_resize_op(is_quantized=False):
     nn_resize = tf.image.resize_nearest_neighbor(
         projection_op.outputs[0],
         add_op.outputs[0].shape.dims[1:3],
-        align_corners=False,
-        name=os.path.split(reshape_2_op.name)[0] + '/resize_nearest_neighbor')
+        align_corners=False)
 
     for index, op_input in enumerate(add_op.inputs):
       if op_input == reshape_2_op.outputs[0]:
@@ -204,8 +207,6 @@ def add_output_tensor_nodes(postprocessed_tensors,
   label_id_offset = 1
   boxes = postprocessed_tensors.get(detection_fields.detection_boxes)
   scores = postprocessed_tensors.get(detection_fields.detection_scores)
-  raw_boxes = postprocessed_tensors.get(detection_fields.raw_detection_boxes)
-  raw_scores = postprocessed_tensors.get(detection_fields.raw_detection_scores)
   classes = postprocessed_tensors.get(
       detection_fields.detection_classes) + label_id_offset
   keypoints = postprocessed_tensors.get(detection_fields.detection_keypoints)
@@ -220,12 +221,6 @@ def add_output_tensor_nodes(postprocessed_tensors,
       classes, name=detection_fields.detection_classes)
   outputs[detection_fields.num_detections] = tf.identity(
       num_detections, name=detection_fields.num_detections)
-  if raw_boxes is not None:
-    outputs[detection_fields.raw_detection_boxes] = tf.identity(
-        raw_boxes, name=detection_fields.raw_detection_boxes)
-  if raw_scores is not None:
-    outputs[detection_fields.raw_detection_scores] = tf.identity(
-        raw_scores, name=detection_fields.raw_detection_scores)
   if keypoints is not None:
     outputs[detection_fields.detection_keypoints] = tf.identity(
         keypoints, name=detection_fields.detection_keypoints)
@@ -257,7 +252,7 @@ def write_saved_model(saved_model_path,
     outputs: A tensor dictionary containing the outputs of a DetectionModel.
   """
   with tf.Graph().as_default():
-    with tf.Session() as sess:
+    with session.Session() as sess:
 
       tf.import_graph_def(frozen_graph_def, name='')
 
@@ -273,15 +268,12 @@ def write_saved_model(saved_model_path,
           tf.saved_model.signature_def_utils.build_signature_def(
               inputs=tensor_info_inputs,
               outputs=tensor_info_outputs,
-              method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME
-          ))
+              method_name=signature_constants.PREDICT_METHOD_NAME))
 
       builder.add_meta_graph_and_variables(
-          sess,
-          [tf.saved_model.tag_constants.SERVING],
+          sess, [tf.saved_model.tag_constants.SERVING],
           signature_def_map={
-              tf.saved_model.signature_constants
-              .DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+              signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
                   detection_signature,
           },
       )
@@ -297,9 +289,9 @@ def write_graph_and_checkpoint(inference_graph_def,
     node.device = ''
   with tf.Graph().as_default():
     tf.import_graph_def(inference_graph_def, name='')
-    with tf.Session() as sess:
-      saver = tf.train.Saver(
-          saver_def=input_saver_def, save_relative_paths=True)
+    with session.Session() as sess:
+      saver = saver_lib.Saver(saver_def=input_saver_def,
+                              save_relative_paths=True)
       saver.restore(sess, trained_checkpoint_prefix)
       saver.save(sess, model_path)
 
@@ -316,8 +308,8 @@ def _get_outputs_from_inputs(input_tensors, detection_model,
                                  output_collection_name)
 
 
-def build_detection_graph(input_type, detection_model, input_shape,
-                          output_collection_name, graph_hook_fn):
+def _build_detection_graph(input_type, detection_model, input_shape,
+                           output_collection_name, graph_hook_fn):
   """Build the detection graph."""
   if input_type not in input_placeholder_fn_map:
     raise ValueError('Unknown input type: {}'.format(input_type))
@@ -351,8 +343,7 @@ def _export_inference_graph(input_type,
                             input_shape=None,
                             output_collection_name='inference_op',
                             graph_hook_fn=None,
-                            write_inference_graph=False,
-                            temp_checkpoint_prefix=''):
+                            write_inference_graph=False):
   """Export helper."""
   tf.gfile.MakeDirs(output_directory)
   frozen_graph_path = os.path.join(output_directory,
@@ -360,7 +351,7 @@ def _export_inference_graph(input_type,
   saved_model_path = os.path.join(output_directory, 'saved_model')
   model_path = os.path.join(output_directory, 'model.ckpt')
 
-  outputs, placeholder_tensor = build_detection_graph(
+  outputs, placeholder_tensor = _build_detection_graph(
       input_type=input_type,
       detection_model=detection_model,
       input_shape=input_shape,
@@ -370,13 +361,12 @@ def _export_inference_graph(input_type,
   profile_inference_graph(tf.get_default_graph())
   saver_kwargs = {}
   if use_moving_averages:
-    if not temp_checkpoint_prefix:
-      # This check is to be compatible with both version of SaverDef.
-      if os.path.isfile(trained_checkpoint_prefix):
-        saver_kwargs['write_version'] = saver_pb2.SaverDef.V1
-        temp_checkpoint_prefix = tempfile.NamedTemporaryFile().name
-      else:
-        temp_checkpoint_prefix = tempfile.mkdtemp()
+    # This check is to be compatible with both version of SaverDef.
+    if os.path.isfile(trained_checkpoint_prefix):
+      saver_kwargs['write_version'] = saver_pb2.SaverDef.V1
+      temp_checkpoint_prefix = tempfile.NamedTemporaryFile().name
+    else:
+      temp_checkpoint_prefix = tempfile.mkdtemp()
     replace_variable_values_with_moving_averages(
         tf.get_default_graph(), trained_checkpoint_prefix,
         temp_checkpoint_prefix)
@@ -398,7 +388,7 @@ def _export_inference_graph(input_type,
                                         'inference_graph.pbtxt')
     for node in inference_graph_def.node:
       node.device = ''
-    with tf.gfile.GFile(inference_graph_path, 'wb') as f:
+    with gfile.GFile(inference_graph_path, 'wb') as f:
       f.write(str(inference_graph_def))
 
   if additional_output_tensor_names is not None:
@@ -496,3 +486,4 @@ def profile_inference_graph(graph):
   tf.contrib.tfprof.model_analyzer.print_model_analysis(
       graph,
       tfprof_options=tfprof_flops_option)
+

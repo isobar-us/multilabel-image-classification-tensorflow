@@ -154,9 +154,7 @@ def export_tflite_graph(pipeline_config,
                         max_detections,
                         max_classes_per_detection,
                         detections_per_class=100,
-                        use_regular_nms=False,
-                        binary_graph_name='tflite_graph.pb',
-                        txt_graph_name='tflite_graph.pbtxt'):
+                        use_regular_nms=False):
   """Exports a tflite compatible graph and anchors for ssd detection model.
 
   Anchors are written to a tensor and tflite compatible graph
@@ -176,8 +174,6 @@ def export_tflite_graph(pipeline_config,
     for NonMaxSuppression per class
     use_regular_nms: Flag to set postprocessing op to use Regular NMS instead
       of Fast NMS.
-    binary_graph_name: Name of the exported graph file in binary format.
-    txt_graph_name: Name of the exported graph file in text format.
 
   Raises:
     ValueError: if the pipeline config contains models other than ssd or uses an
@@ -308,9 +304,9 @@ def export_tflite_graph(pipeline_config,
     # Return frozen without adding post-processing custom op
     transformed_graph_def = frozen_graph_def
 
-  binary_graph = os.path.join(output_dir, binary_graph_name)
+  binary_graph = os.path.join(output_dir, 'tflite_graph.pb')
   with tf.gfile.GFile(binary_graph, 'wb') as f:
     f.write(transformed_graph_def.SerializeToString())
-  txt_graph = os.path.join(output_dir, txt_graph_name)
+  txt_graph = os.path.join(output_dir, 'tflite_graph.pbtxt')
   with tf.gfile.GFile(txt_graph, 'w') as f:
     f.write(str(transformed_graph_def))

@@ -16,8 +16,6 @@
 """Functions to build DetectionModel training optimizers."""
 
 import tensorflow as tf
-
-
 from object_detection.utils import learning_schedules
 
 
@@ -60,7 +58,6 @@ def build(optimizer_config):
     learning_rate = _create_learning_rate(config.learning_rate)
     summary_vars.append(learning_rate)
     optimizer = tf.train.AdamOptimizer(learning_rate)
-
 
   if optimizer is None:
     raise ValueError('Optimizer %s not supported.' % optimizer_type)

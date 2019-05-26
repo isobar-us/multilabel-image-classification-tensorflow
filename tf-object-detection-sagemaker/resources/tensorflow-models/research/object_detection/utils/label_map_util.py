@@ -184,9 +184,7 @@ def get_label_map_dict(label_map_path,
       # there are gaps in the labels, fill in gaps.
       for value in range(1, max(values)):
         if value not in values:
-          # TODO(rathodv): Add a prefix 'class_' here once the tool to generate
-          # teacher annotation adds this prefix in the data.
-          label_map_dict[str(value)] = value
+          label_map_dict['class_' + str(value)] = value
 
   return label_map_dict
 
