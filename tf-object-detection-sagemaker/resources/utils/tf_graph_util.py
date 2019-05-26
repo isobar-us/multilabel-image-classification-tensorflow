@@ -52,7 +52,8 @@ class TFGraph:
                 tf.import_graph_def(od_graph_def, name='')
 
         config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
+        config.gpu_options.per_process_gpu_memory_fraction = 0.80
+        #config.gpu_options.allow_growth = True
         config.log_device_placement = True
 
         self.category_index = label_map_util.create_category_index_from_labelmap(self.label_path, use_display_name=True)
