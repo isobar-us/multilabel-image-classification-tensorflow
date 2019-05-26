@@ -33,7 +33,7 @@ import numpy as np
 import six
 from six.moves import queue
 import tensorflow as tf
-from tensorflow.contrib.tpu.python.tpu.datasets import StreamingFilesDataset
+from absl import logging
 
 from official.datasets import movielens
 from official.recommendation import constants as rconst
@@ -57,17 +57,17 @@ Eval:
 
 
 _TRAIN_FEATURE_MAP = {
-    movielens.USER_COLUMN: tf.FixedLenFeature([], dtype=tf.string),
-    movielens.ITEM_COLUMN: tf.FixedLenFeature([], dtype=tf.string),
-    rconst.MASK_START_INDEX: tf.FixedLenFeature([1], dtype=tf.string),
-    "labels": tf.FixedLenFeature([], dtype=tf.string),
+    movielens.USER_COLUMN: tf.io.FixedLenFeature([], dtype=tf.string),
+    movielens.ITEM_COLUMN: tf.io.FixedLenFeature([], dtype=tf.string),
+    rconst.MASK_START_INDEX: tf.io.FixedLenFeature([1], dtype=tf.string),
+    "labels": tf.io.FixedLenFeature([], dtype=tf.string),
 }
 
 
 _EVAL_FEATURE_MAP = {
-    movielens.USER_COLUMN: tf.FixedLenFeature([], dtype=tf.string),
-    movielens.ITEM_COLUMN: tf.FixedLenFeature([], dtype=tf.string),
-    rconst.DUPLICATE_MASK: tf.FixedLenFeature([], dtype=tf.string)
+    movielens.USER_COLUMN: tf.io.FixedLenFeature([], dtype=tf.string),
+    movielens.ITEM_COLUMN: tf.io.FixedLenFeature([], dtype=tf.string),
+    rconst.DUPLICATE_MASK: tf.io.FixedLenFeature([], dtype=tf.string)
 }
 
 
@@ -200,7 +200,7 @@ class DatasetManager(object):
 
   def start_construction(self):
     if self._stream_files:
-      tf.gfile.MakeDirs(self.current_data_root)
+      tf.io.gfile.makedirs(self.current_data_root)
       template = os.path.join(self.current_data_root, rconst.SHARD_TEMPLATE)
       self._writers = [tf.io.TFRecordWriter(template.format(i))
                        for i in range(rconst.NUM_FILE_SHARDS)]
@@ -235,6 +235,8 @@ class DatasetManager(object):
           self._result_reuse.append(result)
           yield result
 
+  def increment_request_epoch(self):
+    self._epochs_requested += 1
 
   def get_dataset(self, batch_size, epochs_between_evals):
     """Construct the dataset to be used for training and eval.
@@ -244,11 +246,11 @@ class DatasetManager(object):
     to the TPU through a StreamingFilesDataset.
 
     Args:
-      batch_size: The per-device batch size of the dataset.
+      batch_size: The per-replica batch size of the dataset.
       epochs_between_evals: How many epochs worth of data to yield.
         (Generator mode only.)
     """
-    self._epochs_requested += 1
+    self.increment_request_epoch()
     if self._stream_files:
       if epochs_between_evals > 1:
         raise ValueError("epochs_between_evals > 1 not supported for file "
@@ -259,8 +261,12 @@ class DatasetManager(object):
 
       file_pattern = os.path.join(
           epoch_data_dir, rconst.SHARD_TEMPLATE.format("*"))
+      # TODO(seemuch): remove this contrib import
+      # pylint: disable=line-too-long
+      from tensorflow.contrib.tpu.python.tpu.datasets import StreamingFilesDataset
+      # pylint: enable=line-too-long
       dataset = StreamingFilesDataset(
-          files=file_pattern, worker_job="worker",
+          files=file_pattern, worker_job=popen_helper.worker_job(),
           num_parallel_reads=rconst.NUM_FILE_SHARDS, num_epochs=1,
           sloppy=not self._deterministic)
       map_fn = functools.partial(self._deserialize, batch_size=batch_size)
@@ -295,8 +301,12 @@ class DatasetManager(object):
     """Create an input_fn which checks for batch size consistency."""
 
     def input_fn(params):
+      """Returns batches for training."""
+
+      # Estimator passes batch_size during training and eval_batch_size during
+      # eval. TPUEstimator only passes batch_size.
       param_batch_size = (params["batch_size"] if self._is_training else
-                          params["eval_batch_size"])
+                          params.get("eval_batch_size") or params["batch_size"])
       if batch_size != param_batch_size:
         raise ValueError("producer batch size ({}) differs from params batch "
                          "size ({})".format(batch_size, param_batch_size))
@@ -336,7 +346,8 @@ class BaseDataConstructor(threading.Thread):
                eval_batch_size,         # type: int
                batches_per_eval_step,   # type: int
                stream_files,            # type: bool
-               deterministic=False      # type: bool
+               deterministic=False,     # type: bool
+               epoch_dir=None           # type: str
               ):
     # General constants
     self._maximum_number_epochs = maximum_number_epochs
@@ -380,8 +391,8 @@ class BaseDataConstructor(threading.Thread):
 
     self._shuffle_with_forkpool = not stream_files
     if stream_files:
-      self._shard_root = tempfile.mkdtemp(prefix="ncf_")
-      atexit.register(tf.gfile.DeleteRecursively, dirname=self._shard_root)
+      self._shard_root = epoch_dir or tempfile.mkdtemp(prefix="ncf_")
+      atexit.register(tf.io.gfile.rmtree, dirname=self._shard_root)
     else:
       self._shard_root = None
 
@@ -510,7 +521,7 @@ class BaseDataConstructor(threading.Thread):
       time.sleep(0.01)
       count += 1
       if count >= 100 and np.log10(count) == np.round(np.log10(count)):
-        tf.logging.info(
+        logging.info(
             "Waited {} times for training data to be consumed".format(count))
 
   def _construct_training_epoch(self):
@@ -530,7 +541,7 @@ class BaseDataConstructor(threading.Thread):
       pool.map(self._get_training_batch, map_args)
     self._train_dataset.end_construction()
 
-    tf.logging.info("Epoch construction complete. Time: {:.1f} seconds".format(
+    logging.info("Epoch construction complete. Time: {:.1f} seconds".format(
         timeit.default_timer() - start_time))
 
   @staticmethod
@@ -612,7 +623,7 @@ class BaseDataConstructor(threading.Thread):
       pool.map(self._get_eval_batch, map_args)
     self._eval_dataset.end_construction()
 
-    tf.logging.info("Eval construction complete. Time: {:.1f} seconds".format(
+    logging.info("Eval construction complete. Time: {:.1f} seconds".format(
         timeit.default_timer() - start_time))
 
   def make_input_fn(self, is_training):
@@ -626,13 +637,20 @@ class BaseDataConstructor(threading.Thread):
         self._train_dataset.make_input_fn(self.train_batch_size) if is_training
         else self._eval_dataset.make_input_fn(self.eval_batch_size))
 
+  def increment_request_epoch(self):
+    self._train_dataset.increment_request_epoch()
+
 
 class DummyConstructor(threading.Thread):
   """Class for running with synthetic data."""
+
   def run(self):
     pass
 
   def stop_loop(self):
+    pass
+
+  def increment_request_epoch(self):
     pass
 
   @staticmethod
@@ -640,21 +658,24 @@ class DummyConstructor(threading.Thread):
     """Construct training input_fn that uses synthetic data."""
 
     def input_fn(params):
-      """Generated input_fn for the given epoch."""
+      """Returns dummy input batches for training."""
+
+      # Estimator passes batch_size during training and eval_batch_size during
+      # eval. TPUEstimator only passes batch_size.
       batch_size = (params["batch_size"] if is_training else
-                    params["eval_batch_size"])
+                    params.get("eval_batch_size") or params["batch_size"])
       num_users = params["num_users"]
       num_items = params["num_items"]
 
-      users = tf.random_uniform([batch_size], dtype=tf.int32, minval=0,
+      users = tf.random.uniform([batch_size], dtype=tf.int32, minval=0,
                                 maxval=num_users)
-      items = tf.random_uniform([batch_size], dtype=tf.int32, minval=0,
+      items = tf.random.uniform([batch_size], dtype=tf.int32, minval=0,
                                 maxval=num_items)
 
       if is_training:
-        valid_point_mask = tf.cast(tf.random_uniform(
+        valid_point_mask = tf.cast(tf.random.uniform(
             [batch_size], dtype=tf.int32, minval=0, maxval=2), tf.bool)
-        labels = tf.cast(tf.random_uniform(
+        labels = tf.cast(tf.random.uniform(
             [batch_size], dtype=tf.int32, minval=0, maxval=2), tf.bool)
         data = {
             movielens.USER_COLUMN: users,
@@ -662,7 +683,7 @@ class DummyConstructor(threading.Thread):
             rconst.VALID_POINT_MASK: valid_point_mask,
         }, labels
       else:
-        dupe_mask = tf.cast(tf.random_uniform([batch_size], dtype=tf.int32,
+        dupe_mask = tf.cast(tf.random.uniform([batch_size], dtype=tf.int32,
                                               minval=0, maxval=2), tf.bool)
         data = {
             movielens.USER_COLUMN: users,
@@ -744,7 +765,7 @@ class MaterializedDataConstructor(BaseDataConstructor):
       self._per_user_neg_count[i] = self._num_items - positives.shape[0]
       self._negative_table[i, :self._per_user_neg_count[i]] = negatives
 
-    tf.logging.info("Negative sample table built. Time: {:.1f} seconds".format(
+    logging.info("Negative sample table built. Time: {:.1f} seconds".format(
         timeit.default_timer() - start_time))
 
   def lookup_negative_items(self, negative_users, **kwargs):
@@ -797,7 +818,7 @@ class BisectionDataConstructor(BaseDataConstructor):
     self._total_negatives = np.concatenate([
         self._index_segment(i) for i in range(self._num_users)])
 
-    tf.logging.info("Negative total vector built. Time: {:.1f} seconds".format(
+    logging.info("Negative total vector built. Time: {:.1f} seconds".format(
         timeit.default_timer() - start_time))
 
   def lookup_negative_items(self, negative_users, **kwargs):
