@@ -24,7 +24,6 @@ import traceback
 from shutil import copyfile
 from tensorrt.tftrt.examples.object_detection import optimize_model
 
-
 import tensorflow as tf
 
 from utils import commandline_util
@@ -52,7 +51,6 @@ training_script = '/opt/ml/code/tensorflow-models/research/object_detection/mode
 freezing_script = '/opt/ml/code/tensorflow-models/research/object_detection/export_inference_graph.py'
 lite_freezing_script = '/opt/ml/code/tensorflow-models/research/object_detection/export_tflite_ssd_graph.py'
 lite_quant_script = '/opt/ml/code/tensorflow-models/research/object_detection/export_tflite_ssd_graph.py'
-
 
 if __name__ == '__main__':
     try:
@@ -110,14 +108,14 @@ if __name__ == '__main__':
         print('Exporting frozen graph...')
         commandline_util.run_python_script(freezing_script, freeze_export_params)
 
-        print('Optimizing frozen graph...')
-        frozen_graph = optimize_model(
-            config_path=str(model_path + '/graph/pipeline.config'),
-            checkpoint_path=str(model_path + '/graph/model.ckpt'),
-            use_trt=True,
-            precision_mode='FP16',
-            output_path=str(model_path + '/graph/optimized_frozen_graph.pb')
-        )
+        # print('Optimizing frozen graph...')
+        # frozen_graph = optimize_model(
+        #    config_path=str(model_path + '/graph/pipeline.config'),
+        #    checkpoint_path=str(model_path + '/graph/model.ckpt'),
+        #    use_trt=True,
+        #    precision_mode='FP16',
+        #    output_path=str(model_path + '/graph/optimized_frozen_graph.pb')
+        # )
 
         if quantize:
             print('Quantizing frozen graph...')
