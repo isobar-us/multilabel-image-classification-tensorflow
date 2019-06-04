@@ -37,6 +37,10 @@ ENV PATH="/opt/ml/code:${PATH}"
 COPY /resources /opt/ml/code
 WORKDIR /opt/ml/code
 
+# uninstall the current tensorflow package so we can install it from the source
+RUN pip uninstall -y tensorflow
+RUN pip install source_build/tensorflow-1.12.2-cp36-cp36m-linux_x86_64.whl
+
 RUN pip install --upgrade pip
 RUN pip install matplotlib
 
