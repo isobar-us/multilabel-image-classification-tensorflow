@@ -16,6 +16,8 @@
 
 FROM tensorflow/tensorflow:1.12.0-py3
 
+RUN add-apt-repository ppa:jonathonf/python-3.6
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         zip \
@@ -23,7 +25,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \
         curl \
-        nginx
+        nginx \
+        python3.6 \
+        python3.6-dev
+
+RUN python -m pip install --upgrade pip
+
+RUN pip install -U virtualenv
+
+RUN virtualenv --system-site-packages -p python3.6 /opt/venv
+
+RUN . /opt/venv/bin/activate
+
+ENV VIRTUAL_ENV /opt/venv
+ENV PATH /opt/venv/bin:$PATH
+
+RUN python3.6 --version
+RUN python --version
 
 #Install protobuff/protoc
 RUN curl -OL https://github.com/google/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip
@@ -37,12 +55,19 @@ ENV PATH="/opt/ml/code:${PATH}"
 COPY /resources /opt/ml/code
 WORKDIR /opt/ml/code
 
+RUN pip install -U pip six numpy wheel setuptools mock
+RUN pip install -U keras_applications==1.0.6 --no-deps
+RUN pip install -U keras_preprocessing==1.0.5 --no-deps
+RUN pip install matplotlib
+
 # uninstall the current tensorflow package so we can install it from the source
 RUN pip uninstall -y tensorflow
+
+# install tensorflow from source
 RUN pip install source_build/tensorflow-1.12.2-cp36-cp36m-linux_x86_64.whl
 
-RUN pip install --upgrade pip
-RUN pip install matplotlib
+# delete the source folder
+RUN rm -rf source_build
 
 #RUN cd tensorflow-models/research/slim \
 RUN pip install -e tensorflow-models/research/slim
