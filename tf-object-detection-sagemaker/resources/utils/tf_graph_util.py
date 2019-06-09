@@ -1,6 +1,8 @@
 import numpy as np
 import io
 import tensorflow as tf
+import tensorflow.contrib.tensorrt as trt
+
 from PIL import Image
 from matplotlib import pyplot as plt
 from object_detection.utils import label_map_util

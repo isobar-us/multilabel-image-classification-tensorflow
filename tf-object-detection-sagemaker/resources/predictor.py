@@ -6,6 +6,7 @@ import base64
 import flask
 
 from utils.tf_graph_util import TFGraph
+import tensorflow.contrib.tensorrt as trt
 
 prefix = '/opt/ml/'
 input_path = os.path.join(prefix, 'input/data')
