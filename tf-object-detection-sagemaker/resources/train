@@ -23,9 +23,9 @@ import sys
 import traceback
 from shutil import copyfile
 
-
 import tensorflow as tf
 
+from tensorrt.object_detection import optimize_model
 from utils import commandline_util
 
 # These are the paths to where SageMaker mounts interesting things in your container.
@@ -52,7 +52,6 @@ freezing_script = '/opt/ml/code/tensorflow-models/research/object_detection/expo
 lite_freezing_script = '/opt/ml/code/tensorflow-models/research/object_detection/export_tflite_ssd_graph.py'
 lite_quant_script = '/opt/ml/code/tensorflow-models/research/object_detection/export_tflite_ssd_graph.py'
 
-
 if __name__ == '__main__':
     try:
         print('Using Tensorflow version: {}'.format(tf.__version__))
@@ -70,27 +69,26 @@ if __name__ == '__main__':
         else:
             num_steps_hyperparam = '100'
 
-        if 'quantize' in training_params:
-            quantize = str(training_params['quantize']).lower() == 'true'
-        else:
-            quantize = False
-
         if 'image_size' in training_params:
             image_size = training_params['image_size']
         else:
             image_size = '300'
 
-        if 'inference_type' in training_params:
-            inference_type = training_params['inference_type'].upper()
+        if 'optimization' in training_params:
+            optimization = training_params['optimization'].upper()
         else:
-            inference_type = 'FLOAT'
+            optimization = None
+
+        if 'minimum_segment_size' in training_params:
+            minimum_segment_size = int(training_params['minimum_segment_size'])
+        else:
+            minimum_segment_size = 20
 
         image_shape = ','.join(['1', image_size, image_size, '3'])
 
         print('Setting number of steps to {}'.format(num_steps_hyperparam))
-        print('Setting quantization to {}'.format(quantize))
         print('Setting image shape to {}'.format(image_shape))
-        print('Setting inference type to {}'.format(inference_type))
+        print('Setting optimization type to {}'.format(optimization))
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         print("Extracted checkpoint files: {}".format(file_list))
@@ -109,43 +107,46 @@ if __name__ == '__main__':
         print('Exporting frozen graph...')
         commandline_util.run_python_script(freezing_script, freeze_export_params)
 
-        if quantize:
-            print('Quantizing frozen graph...')
-            # freeze and export the graph for tflite processing
-            lite_freeze_export_params = ['--pipeline_config_path', str(tfrecord_config_path),
-                                         '--trained_checkpoint_prefix',
-                                         str(model_path + '/model.ckpt-' + num_steps_hyperparam),
-                                         '--output_directory', str(model_path + '/graph'),
-                                         '--add_postprocessing_op', str('true')]
-            print('Exporting Lite frozen graph...')
-            commandline_util.run_python_script(lite_freezing_script, lite_freeze_export_params)
+        if optimization:
+            if optimization == 'FP32' or optimization == 'FP16':
+                print('Optimizing graph with Tensorrt to {} with {} minimum segments'.format(optimization,
+                                                                                             minimum_segment_size))
+                frozen_graph = optimize_model(
+                    config_path=str(model_path + '/graph/pipeline.config'),
+                    checkpoint_path=str(model_path + '/graph/model.ckpt'),
+                    use_trt=True,
+                    minimum_segment_size=minimum_segment_size,
+                    precision_mode=optimization,
+                    output_path=str(model_path + '/graph/frozen_inference_graph.pb')
+                )
+            elif optimization == 'INT8':
+                print('Optimizing graph with TFLite...')
 
-            graph_def_file = str(model_path + '/graph/tflite_graph.pb')
-            output_tflite_graph = str(model_path + '/graph/tflite_quant_graph.tflite')
-            input_arrays = ['normalized_input_image_tensor']
-            output_arrays = ['TFLite_Detection_PostProcess', 'TFLite_Detection_PostProcess:1',
-                             'TFLite_Detection_PostProcess:2', 'TFLite_Detection_PostProcess:3']
-            input_shapes = {'normalized_input_image_tensor': [1, image_size, image_size, 3]}
+                # freeze and export the graph for tflite processing
+                lite_freeze_export_params = ['--pipeline_config_path', str(tfrecord_config_path),
+                                             '--trained_checkpoint_prefix',
+                                             str(model_path + '/model.ckpt-' + num_steps_hyperparam),
+                                             '--output_directory', str(model_path + '/graph'),
+                                             '--add_postprocessing_op', str('true')]
+                print('Exporting Lite frozen graph...')
+                commandline_util.run_python_script(lite_freezing_script, lite_freeze_export_params)
 
-            converter = tf.contrib.lite.TFLiteConverter.from_frozen_graph(graph_def_file, input_arrays,
-                                                                          output_arrays, input_shapes)
-            converter.allow_custom_ops = True
+                graph_def_file = str(model_path + '/graph/tflite_graph.pb')
+                output_tflite_graph = str(model_path + '/graph/tflite_quant_graph.tflite')
+                input_arrays = ['normalized_input_image_tensor']
+                output_arrays = ['TFLite_Detection_PostProcess', 'TFLite_Detection_PostProcess:1',
+                                 'TFLite_Detection_PostProcess:2', 'TFLite_Detection_PostProcess:3']
+                input_shapes = {'normalized_input_image_tensor': [1, image_size, image_size, 3]}
 
-            if inference_type == 'QUANTIZED_UINT8':
+                converter = tf.contrib.lite.TFLiteConverter.from_frozen_graph(graph_def_file, input_arrays,
+                                                                              output_arrays, input_shapes)
+                converter.allow_custom_ops = True
+
                 # quantize and export the tflite graph
                 print('Quantizing Lite graph for QUANTIZED_UINT8 inference type...')
 
                 converter.inference_type = tf.contrib.lite.constants.QUANTIZED_UINT8
                 converter.quantized_input_stats = {'normalized_input_image_tensor': (128, 128)}
-                tflite_model = converter.convert()
-
-                open(output_tflite_graph, 'wb').write(tflite_model)
-
-            elif inference_type == 'FLOAT':
-                print('Quantizing Lite graph for FLOAT inference type...')
-
-                converter.inference_type = tf.contrib.lite.constants.FLOAT
-                converter.post_training_quantize = True
                 tflite_model = converter.convert()
 
                 open(output_tflite_graph, 'wb').write(tflite_model)

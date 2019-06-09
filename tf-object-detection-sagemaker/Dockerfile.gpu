@@ -16,6 +16,8 @@
 
 FROM tensorflow/tensorflow:1.12.0-gpu-py3
 
+ENV SOURCE_WHL=tensorflow-1.12.2-cp36-cp36m-linux_x86_64.whl
+
 RUN add-apt-repository ppa:jonathonf/python-3.6
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,7 +29,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         nginx \
         python3.6 \
-        python3.6-dev
+        python3.6-dev \
+        && \
+            apt-get update && apt-get install -y --no-install-recommends \
+        nvinfer-runtime-trt-repo-ubuntu1604-5.0.2-ga-cuda9.0 && \
+            apt-get update && apt-get install -y --no-install-recommends \
+        libnvinfer5=5.0.2-1+cuda9.0
 
 RUN python -m pip install --upgrade pip
 
@@ -64,11 +71,14 @@ RUN pip install matplotlib
 RUN pip uninstall -y tensorflow
 RUN pip uninstall -y tensorflow-gpu
 
+RUN wget -O ${SOURCE_WHL} https://isobar-tensorflow.s3.amazonaws.com/1.12/gpu/${SOURCE_WHL}
+
 # install tensorflow from source
-RUN pip install source_build/tensorflow-1.12.2-gpu-cp36-cp36m-linux_x86_64.whl
+RUN pip install ${SOURCE_WHL}
 
 # delete the source folder
 RUN rm -rf source_build
+RUN rm ${SOURCE_WHL}
 
 #RUN cd tensorflow-models/research/slim \
 RUN pip install -e tensorflow-models/research/slim
