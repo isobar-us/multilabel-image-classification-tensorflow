@@ -55,7 +55,7 @@ class TFGraph:
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
-        config.log_device_placement = True
+        config.log_device_placement = False
 
         self.category_index = label_map_util.create_category_index_from_labelmap(self.label_path, use_display_name=True)
         self.session = tf.Session(config=config, graph=default_graph)
