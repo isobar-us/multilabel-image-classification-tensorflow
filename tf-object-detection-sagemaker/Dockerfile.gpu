@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
         python3.6 \
         python3.6-dev \
+        libcudnn7=7.3.1.20-1+cuda9.0 \
         && \
             apt-get update && apt-get install -y --no-install-recommends \
         nvinfer-runtime-trt-repo-ubuntu1604-5.0.2-ga-cuda9.0 && \
