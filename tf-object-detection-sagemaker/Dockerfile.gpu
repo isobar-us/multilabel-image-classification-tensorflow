@@ -14,9 +14,9 @@
 # For more information on creating a Dockerfile
 # https://docs.docker.com/compose/gettingstarted/#step-2-create-a-dockerfile
 
-FROM tensorflow/tensorflow:1.12.0-gpu-py3
+FROM tensorflow/tensorflow:1.13.1-gpu-py3
 
-ENV SOURCE_WHL=tensorflow-1.12.2-cp36-cp36m-linux_x86_64.whl
+ENV SOURCE_WHL=tensorflow-1.13.1-cp36-cp36m-linux_x86_64.whl
 
 RUN add-apt-repository ppa:jonathonf/python-3.6
 
@@ -30,12 +30,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
         python3.6 \
         python3.6-dev \
-        libcudnn7=7.3.1.20-1+cuda9.0 \
+        libnccl2=2.3.7-1+cuda10.0 \
+        libcudnn7=7.5.0.56-1+cuda10.0 \
         && \
             apt-get update && apt-get install -y --no-install-recommends \
-        nvinfer-runtime-trt-repo-ubuntu1604-5.0.2-ga-cuda9.0 && \
-            apt-get update && apt-get install -y --no-install-recommends \
-        libnvinfer5=5.0.2-1+cuda9.0
+        nvinfer-runtime-trt-repo-ubuntu1604-5.0.2-ga-cuda10.0
 
 RUN python -m pip install --upgrade pip
 
@@ -72,7 +71,8 @@ RUN pip install matplotlib
 RUN pip uninstall -y tensorflow
 RUN pip uninstall -y tensorflow-gpu
 
-RUN wget -O ${SOURCE_WHL} https://isobar-tensorflow.s3.amazonaws.com/1.12/gpu/${SOURCE_WHL}
+# RUN pip install tensorflow-gpu==1.13.1
+RUN wget -O ${SOURCE_WHL} https://isobar-tensorflow.s3.amazonaws.com/1.13/gpu/${SOURCE_WHL}
 
 # install tensorflow from source
 RUN pip install ${SOURCE_WHL}
@@ -95,6 +95,8 @@ WORKDIR /opt/ml/code
 #Update the python path to include the object detection API
 ENV PYTHONPATH=${PYTHONPATH}:tensorflow-models/research:tensorflow-models/research/slim:tensorflow-models/research/object_detection
 
+RUN protoc --version
+
 RUN echo $PYTHONPATH
 
 RUN pip install -U scikit-image
@@ -104,4 +106,5 @@ RUN pip install -U gevent
 RUN pip install -U gunicorn
 RUN pip install -U cython
 RUN pip install -U scipy
+RUN pip install -U absl-py
 RUN pip install "git+https://github.com/philferriere/cocoapi.git#egg=pycocotools&subdirectory=PythonAPI"

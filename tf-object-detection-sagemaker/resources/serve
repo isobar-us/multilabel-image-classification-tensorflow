@@ -18,11 +18,24 @@ import os
 import signal
 import subprocess
 import sys
+import tensorflow as tf
 
-cpu_count = multiprocessing.cpu_count()
 
-model_server_timeout = os.environ.get('MODEL_SERVER_TIMEOUT', 60)
-model_server_workers = int(os.environ.get('MODEL_SERVER_WORKERS', cpu_count))
+tf.logging.set_verbosity(tf.logging.INFO)
+
+model_server_timeout = os.environ.get('MODEL_SERVER_TIMEOUT', 300)
+
+if tf.test.is_gpu_available():
+    model_server_workers = int(os.environ.get('MODEL_SERVER_WORKERS', 1))
+
+    tf.logging.info('GPU enabled is on this instance. Setting number of workers to {}'.format(model_server_workers))
+
+else:
+    cpu_count = multiprocessing.cpu_count()
+
+    model_server_workers = int(os.environ.get('MODEL_SERVER_WORKERS', cpu_count))
+
+    tf.logging.info('CPU-only instance. Setting number of workers to {}'.format(model_server_workers))
 
 
 def sigterm_handler(nginx_pid, gunicorn_pid):
