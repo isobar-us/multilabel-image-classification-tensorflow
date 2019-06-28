@@ -150,12 +150,18 @@ if __name__ == '__main__':
         else:
             optimization_engine = 'TF_RT'
 
+        if 'sample_1_of_n_eval_examples' in training_params:
+            sample_1_of_n_eval_examples = int(training_params['sample_1_of_n_eval_examples'])
+        else:
+            sample_1_of_n_eval_examples = 1
+
         image_shape = ','.join(['1', image_size, image_size, '3'])
 
         tf.logging.info('Setting number of steps to {}'.format(num_steps_hyperparam))
         tf.logging.info('Setting image shape to {}'.format(image_shape))
         tf.logging.info('Setting optimization type to {}'.format(optimization))
         tf.logging.info('Setting optimization engine to {}'.format(optimization_engine))
+        tf.logging.info('Setting sample_1_of_n_eval_examples to {}'.format(sample_1_of_n_eval_examples))
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         tf.logging.info("Extracted checkpoint files: {}".format(file_list))
@@ -163,7 +169,7 @@ if __name__ == '__main__':
         default_params = ['--model_dir', str(model_path),
                           '--pipeline_config_path', str(tfrecord_config_path),
                           '--num_train_steps', str(num_steps_hyperparam),
-                          '--sample_1_of_n_eval_examples', '3']
+                          '--sample_1_of_n_eval_examples', str(sample_1_of_n_eval_examples)]
         tf.logging.info('Starting the training...')
         commandline_util.run_python_script(training_script, default_params)
 
