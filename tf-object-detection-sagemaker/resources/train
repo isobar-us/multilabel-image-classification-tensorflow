@@ -162,7 +162,8 @@ if __name__ == '__main__':
 
         default_params = ['--model_dir', str(model_path),
                           '--pipeline_config_path', str(tfrecord_config_path),
-                          '--num_train_steps', str(num_steps_hyperparam)]
+                          '--num_train_steps', str(num_steps_hyperparam),
+                          '--sample_1_of_n_eval_examples', '3']
         tf.logging.info('Starting the training...')
         commandline_util.run_python_script(training_script, default_params)
 
