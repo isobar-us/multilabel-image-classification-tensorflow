@@ -155,6 +155,11 @@ if __name__ == '__main__':
         else:
             sample_1_of_n_eval_examples = 1
 
+        if 'save_checkpoints_secs' in training_params:
+            save_checkpoints_secs = int(training_params['save_checkpoints_secs'])
+        else:
+            save_checkpoints_secs = 600
+
         image_shape = ','.join(['1', image_size, image_size, '3'])
 
         tf.logging.info('Setting number of steps to {}'.format(num_steps_hyperparam))
@@ -162,6 +167,7 @@ if __name__ == '__main__':
         tf.logging.info('Setting optimization type to {}'.format(optimization))
         tf.logging.info('Setting optimization engine to {}'.format(optimization_engine))
         tf.logging.info('Setting sample_1_of_n_eval_examples to {}'.format(sample_1_of_n_eval_examples))
+        tf.logging.info('Setting save_checkpoints_secs to {}'.format(save_checkpoints_secs))
 
         file_list = os.listdir(tfrecord_pretrained_checkpoint_path)
         tf.logging.info("Extracted checkpoint files: {}".format(file_list))
@@ -169,7 +175,8 @@ if __name__ == '__main__':
         default_params = ['--model_dir', str(model_path),
                           '--pipeline_config_path', str(tfrecord_config_path),
                           '--num_train_steps', str(num_steps_hyperparam),
-                          '--sample_1_of_n_eval_examples', str(sample_1_of_n_eval_examples)]
+                          '--sample_1_of_n_eval_examples', str(sample_1_of_n_eval_examples),
+                          '--save_checkpoints_secs', str(save_checkpoints_secs)]
         tf.logging.info('Starting the training...')
         commandline_util.run_python_script(training_script, default_params)
 
