@@ -683,9 +683,6 @@ def create_train_and_eval_specs(train_input_fn,
       True, the last `EvalSpec` in the list will correspond to training data. The
       rest EvalSpecs in the list are evaluation datas.
     """
-
-    tf.logging.info('eval_interval_secs {}'.format(eval_interval_secs))
-
     train_spec = tf.estimator.TrainSpec(
         input_fn=train_input_fn, max_steps=train_steps)
 
@@ -716,7 +713,6 @@ def create_train_and_eval_specs(train_input_fn,
             tf.estimator.EvalSpec(
                 name='eval_on_train', input_fn=eval_on_train_input_fn, steps=None))
 
-    tf.logging.info(eval_specs)
     return train_spec, eval_specs
 
 

@@ -77,7 +77,7 @@ def main(unused_argv):
   eval_on_train_input_fn = train_and_eval_dict['eval_on_train_input_fn']
   predict_input_fn = train_and_eval_dict['predict_input_fn']
   train_steps = train_and_eval_dict['train_steps']
-  eval_interval_secs = train_and_eval_dict['eval_interval_secs']
+  eval_interval_secs = FLAGS.save_checkpoints_secs
 
   if FLAGS.checkpoint_dir:
     if FLAGS.eval_training_data:
