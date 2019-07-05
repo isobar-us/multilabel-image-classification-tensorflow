@@ -583,6 +583,8 @@ def create_estimator_and_inputs(run_config,
     eval_on_train_input_config.sample_1_of_n_examples = (
         sample_1_of_n_eval_on_train_examples)
     eval_interval_secs = eval_config.eval_interval_secs
+    run_config.save_checkpoints_secs = eval_interval_secs
+
     if override_eval_num_epochs and eval_on_train_input_config.num_epochs != 1:
         tf.logging.warning('Expected number of evaluation epochs is 1, but '
                            'instead encountered `eval_on_train_input_config'
