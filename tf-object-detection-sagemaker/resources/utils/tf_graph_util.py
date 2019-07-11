@@ -20,7 +20,7 @@ def load_image_into_numpy_array_from_path(image_path, image_size):
     file_name = image_path
 
     image = Image.open(file_name)
-    image = image.resize((image_size, image_size), Image.ANTIALIAS)
+    image.thumbnail((image_size, image_size), Image.ANTIALIAS)
     image_np = load_image_into_numpy_array(image)
     # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
 
@@ -29,7 +29,7 @@ def load_image_into_numpy_array_from_path(image_path, image_size):
 
 def load_image_into_numpy_array_from_bytes(image_bytes, image_size):
     image = Image.open(io.BytesIO(image_bytes))
-    image = image.resize((image_size, image_size), Image.ANTIALIAS)
+    image.thumbnail((image_size, image_size), Image.ANTIALIAS)
     image_np = load_image_into_numpy_array(image)
     # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
 
@@ -96,8 +96,6 @@ class TFGraph:
         # Run inference
         expanded_image_numpy = np.expand_dims(image_numpy, 0)
 
-        tf.logging.info('Running inference on image...')
-
         output_dict = self.session.run(self.tensor_dict, feed_dict={image_tensor: expanded_image_numpy})
 
         tf.logging.info('Finished running inference')
@@ -105,7 +103,7 @@ class TFGraph:
         # all outputs are float32 numpy arrays, so convert types as appropriate
         output_dict['num_detections'] = int(output_dict['num_detections'][0])
         output_dict['detection_classes'] = output_dict[
-            'detection_classes'][0].astype(np.uint8)
+            'detection_classes'][0].astype(np.uint16)
         output_dict['detection_boxes'] = output_dict['detection_boxes'][0]
         output_dict['detection_scores'] = output_dict['detection_scores'][0]
         if 'detection_masks' in output_dict:
